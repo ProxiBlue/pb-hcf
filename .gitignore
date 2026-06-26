@@ -1,0 +1,22 @@
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor noise
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Python (if anyone adds tooling scripts later)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node (same caveat)
+node_modules/

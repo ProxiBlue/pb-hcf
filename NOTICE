@@ -1,0 +1,26 @@
+pb-hcf
+Copyright (c) 2026 Lucas van Staden / Proxiblue
+https://github.com/ProxiBlue/pb-hcf
+
+This product includes software developed by
+Lucas van Staden / Proxiblue (https://www.proxiblue.com.au).
+
+------------------------------------------------------------------------
+
+This plugin orchestrates and depends on third-party software that is
+NOT redistributed in this repository — consumers fetch and run those
+components themselves:
+
+  * HCF (Hyper-Charged Framework for Claude Code)
+    https://github.com/markshust/hcf
+    pb-hcf does not modify HCF source files. Its agents (gitnexus-reviewer)
+    and playbooks complement HCF's existing flow via context-based wiring
+    (CLAUDE.md fenced sections) and pipeline.md post-implementation slots.
+
+  * GitNexus (mage-os-gitnexus or compatible)
+    https://github.com/ProxiBlue/mage-os-gitnexus
+    pb-hcf's gitnexus-reviewer agent calls the gitnexus MCP server but
+    does not bundle its source.
+
+The above components are run as independent processes / external plugins.
+No source code from those components is bundled in this repository.

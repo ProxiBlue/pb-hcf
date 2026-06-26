@@ -1,0 +1,26 @@
+{
+  "name": "pb-hcf",
+  "owner": {
+    "name": "Lucas van Staden",
+    "email": "lucas@proxiblue.com.au"
+  },
+  "plugins": [
+    {
+      "name": "pb-hcf",
+      "source": "./",
+      "description": "Consolidated HCF flow customisation for the ProxiBlue fleet — multi-playbook wire installer, gitnexus-reviewer agent, pipeline.md review/security hooks. Replaces pb-gitnexus.",
+      "version": "0.2.0",
+      "license": "Apache-2.0",
+      "keywords": [
+        "hcf",
+        "playbooks",
+        "wire",
+        "review",
+        "gitnexus",
+        "graphiti",
+        "magento",
+        "ddev"
+      ]
+    }
+  ]
+}

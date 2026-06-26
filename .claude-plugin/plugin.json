@@ -1,0 +1,5 @@
+{
+  "name": "pb-hcf",
+  "version": "0.2.0",
+  "description": "Consolidates HCF flow customisation for the ProxiBlue fleet: multi-playbook wire installer (gitnexus, graphiti, security, …), the gitnexus-reviewer agent, and pipeline.md post-implementation review/security hooks. Replaces pb-gitnexus. HCF source stays untouched — pb-hcf works via context wiring (.claude/CLAUDE.md fenced section + .claude/<playbook>.md files) and pipeline.md slots."
+}

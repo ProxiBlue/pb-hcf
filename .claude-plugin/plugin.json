@@ -1,5 +1,5 @@
 {
   "name": "pb-hcf",
-  "version": "0.2.0",
-  "description": "Consolidates HCF flow customisation for the ProxiBlue fleet: multi-playbook wire installer (gitnexus, graphiti, security, …), the gitnexus-reviewer agent, and pipeline.md post-implementation review/security hooks. Replaces pb-gitnexus. HCF source stays untouched — pb-hcf works via context wiring (.claude/CLAUDE.md fenced section + .claude/<playbook>.md files) and pipeline.md slots."
+  "version": "0.3.0",
+  "description": "Consolidates HCF flow customisation for the ProxiBlue fleet: multi-playbook wire installer (gitnexus, graphiti, security, …), bundled agents (gitnexus-reviewer, security-quorum + 3 specialists), and opt-in HCF v2 hook enrollment via agent frontmatter. Replaces pb-gitnexus. HCF source stays untouched — pb-hcf works via context wiring (.claude/CLAUDE.md fenced section + .claude/<playbook>.md files) and project-local .claude/agents/ overrides stamped with phase/order/mode when --enable is passed to /pb-hcf:wire."
 }

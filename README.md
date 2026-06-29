@@ -1,14 +1,16 @@
 # pb-hcf
 
-Context-wire bundle that gives HCF's autonomous workflow access to a code graph (GitNexus), a temporal knowledge graph (Graphiti), and a multi-agent security quorum. HCF source files are not modified — extensions land via project-local `.claude/<playbook>.md` files referenced from a fenced section in `.claude/CLAUDE.md`, plus drop-in agents that fit HCF's native `pipeline.md` post-implementation extension point.
+Context-wire bundle that gives HCF's autonomous workflow access to a code graph (GitNexus), a temporal knowledge graph (Graphiti), and a multi-agent security quorum. HCF source files are not modified — extensions land via project-local `.claude/<playbook>.md` files referenced from a fenced section in `.claude/CLAUDE.md`, plus opt-in drop-in agents that enroll into HCF v2.0.0+'s frontmatter-based hook pipeline.
+
+> **HCF v2.0.0 compatibility (2026-06-26).** HCF dropped `.claude/pipeline.md`. Agents now declare hook membership via YAML frontmatter (`phase:` / `order:` / `mode:`) — see [HOOKS.md upstream](https://github.com/markshust/hcf#pipeline). `/pb-hcf:wire` enrolls bundled agents by stamping that frontmatter into `.claude/agents/<name>.md` overrides only when `--enable=<name>` is passed (default: off). If a legacy `.claude/pipeline.md` exists, `/pb-hcf:wire` refuses to run and points the user at `/hcf:project-update` to migrate first.
 
 ## What's in the plugin
 
 | | Type | What |
 |---|---|---|
-| `/pb-hcf:wire` | skill | Multi-playbook installer. Discovers `templates/playbooks/*.md`, copies each to `.claude/<name>.md`, appends a single fenced section to `.claude/CLAUDE.md` pointing to all of them, writes `.claude/wires.json` registry, runs per-domain reachability probes. |
-| `gitnexus-reviewer` | agent | Diff-impact reviewer using the GitNexus code graph. Invoked as a `## post-implementation` agent in each project's `pipeline.md`. Surfaces indirect callers grep misses (plugins, observers, DI preferences). |
-| `security-quorum` | agent (orchestrator) | Spawns the 3 security specialists in parallel, runs 2-round 2-of-3 consensus, synthesises a single PASS / FAIL / NEEDS-REVIEW verdict, writes one verdict episode to graphiti. ~$0.30-1.00 per run. Invoked from `pipeline.md` post-implementation slot, `workflow-build-feature` quality gate, or ad-hoc. |
+| `/pb-hcf:wire` | skill | Multi-playbook installer + opt-in HCF v2 hook enrollment. Discovers `templates/playbooks/*.md`, copies each to `.claude/<name>.md`, appends a single fenced section to `.claude/CLAUDE.md` pointing to all of them, writes `.claude/wires.json` registry, runs per-domain reachability probes. With `--enable=<name>[,<name>]`, copies the named bundled agent(s) to `.claude/agents/<name>.md` with `phase`/`order`/`mode` stamped. |
+| `gitnexus-reviewer` | agent | Diff-impact reviewer using the GitNexus code graph. Suggested enrollment: `phase: post-implementation`, `order: 30`, `mode: single`. Opt in via `/pb-hcf:wire --enable=gitnexus-reviewer`. Surfaces indirect callers grep misses (plugins, observers, DI preferences). |
+| `security-quorum` | agent (orchestrator) | Spawns the 3 security specialists in parallel, runs 2-round 2-of-3 consensus, synthesises a single PASS / FAIL / NEEDS-REVIEW verdict, writes one verdict episode to graphiti. ~$0.30-1.00 per run. Suggested enrollment: `phase: post-implementation`, `order: 70`, `mode: single`. Opt in via `/pb-hcf:wire --enable=security-quorum` or call ad-hoc via `Task`. |
 | `security-static-analyst` | agent (specialist, 1 of 3) | Reads code + traces data flows from sources to sinks. Cites file:line. Uses gitnexus impact + graphiti incident recall. Read-only. |
 | `security-adversarial-tester` | agent (specialist, 2 of 3) | Hostile-actor angle. Builds exploit payloads + attack chains. Online CVE lookups (NVD, GitHub Advisory DB, OSV). Native audit tools (composer/npm/pip-audit). Read-only — no actual exploitation. |
 | `security-defensive-auditor` | agent (specialist, 3 of 3) | Pass-then-verify discipline. Walks each framework-provided defense (Magento ACL, form_key, escapeHtml, CSP, crypto) and confirms it fires correctly, not just imports. Read-only. |
@@ -23,7 +25,7 @@ Each playbook declares — at the top, as a fixed section — what it is the sou
 
 ## How HCF flows change with pb-hcf wires
 
-Vanilla HCF is a complete flow on its own. pb-hcf doesn't replace it — pb-hcf gives HCF's existing agents better tools (gitnexus + graphiti MCP context) and adds a security quorum at HCF's native post-implementation extension point. HCF source files are not modified.
+Vanilla HCF is a complete flow on its own. pb-hcf doesn't replace it — pb-hcf gives HCF's existing agents better tools (gitnexus + graphiti MCP context) and adds a security quorum at HCF's native `post-implementation` hook (enrolled via agent frontmatter; default off). HCF source files are not modified.
 
 The two side-by-side diagrams below cover the user-visible flow. Everything pb-hcf adds is annotated with `◄── pb-hcf`.
 
@@ -66,11 +68,14 @@ User runs /proxiblue-skills:workflow-onboard-project   ◄── ONE TIME per pr
   ├─ Install plugins: pb-hcf, pb-hcf-playwright-tdd, proxiblue-skills, hyva-ai-tools
   ├─ /hcf:project-setup → .claude/CLAUDE.md
   ├─ /pb-hcf-playwright-tdd:setup → .claude/testing.md
-  └─ /pb-hcf:wire   ◄── pb-hcf: multi-playbook installer
+  └─ /pb-hcf:wire --enable=gitnexus-reviewer,security-quorum   ◄── pb-hcf
         ├─ Drops .claude/{gitnexus,graphiti,security}.md
         ├─ Single fenced section in .claude/CLAUDE.md pointing to all of them
         ├─ Runs reachability probes (gitnexus:4747, mcp__graphiti__get_status)
-        └─ Writes .claude/wires.json registry
+        ├─ Enrolls each --enable'd bundled agent into HCF's hook pipeline:
+        │     copies $PLUGIN/agents/<name>.md → .claude/agents/<name>.md
+        │     and stamps phase: post-implementation / order / mode in frontmatter
+        └─ Writes .claude/wires.json registry (playbooks[] + enrollments[])
 
 
 User runs /proxiblue-skills:workflow-build-feature <ticket>
@@ -109,10 +114,10 @@ User runs /proxiblue-skills:workflow-build-feature <ticket>
   │      │     ├─ Targeted tests (per-project testing.md scoping)
   │      │     └─ SubagentStop hook → captures non-obvious blockers
   │      │
-  │      └─ Post-implementation pipeline (pipeline.md driven):
-  │             ├─ standards-enforcer (vanilla HCF)
-  │             ├─ pb-hcf: gitnexus-reviewer — impact-graph review of whole diff
-  │             ├─ pb-hcf: security-quorum   ◄── 2-of-3 consensus gate
+  │      └─ Post-implementation pipeline (HCF v2 frontmatter-enrolled agents):
+  │             ├─ standards-enforcer (vanilla HCF — opt-in via frontmatter)
+  │             ├─ pb-hcf: gitnexus-reviewer (order 30) — impact-graph review of whole diff
+  │             ├─ pb-hcf: security-quorum (order 70)   ◄── 2-of-3 consensus gate
   │             │       ├─ Round 1 parallel spawn of 3 specialists:
   │             │       │   ├─ security-static-analyst (data-flow + file:line)
   │             │       │   ├─ security-adversarial-tester (payloads + CVE lookup)
@@ -152,7 +157,7 @@ ALWAYS-ON (per session, via pb-graphiti hooks):
 | plan-create Phase 6 devils-advocate | Grep-only review | + gitnexus indirect-caller chase + graphiti adjacent-work + security scope flag | Multi-source critique |
 | plan-orchestrate workers | grep + read | + gitnexus find_symbol/impact + graphiti incident recall | Workers consult institutional memory |
 | plan-orchestrate worker tests | Full project suite per task | Targeted scoped tests per task (testing.md) | Avoids parallel-collision when project's testing.md is configured for it — see "Open concerns" |
-| plan-orchestrate post-implementation | standards-enforcer only | + gitnexus-reviewer + security-quorum (3-agent 2-of-3) | Real security gate that scales |
+| plan-orchestrate post-implementation | standards-enforcer (dormant by default in HCF v2) | + gitnexus-reviewer (order 30) + security-quorum (order 70), both enrolled via `/pb-hcf:wire --enable=...` | Real security gate that scales |
 | Test suite at plan-end | Full suite | Full suite (unchanged from vanilla) | — |
 | Commit | Single commit at plan-end | Single commit at plan-end | Unchanged |
 | Session lifecycle writes to graphiti | None | SessionStart recall + TaskCompleted / SubagentStop / SessionEnd consolidation | Long-term memory accumulates |
@@ -165,18 +170,18 @@ ALWAYS-ON (per session, via pb-graphiti hooks):
 | Indirect-caller awareness in plan-review + workers | gitnexus impact via wire |
 | Prior-incident recall when implementing | graphiti search in tdd-worker per task |
 | Multi-source critique by devils-advocate | three playbooks consulted simultaneously |
-| Multi-agent security gate with quorum (2-of-3) | `security-quorum` pipeline.md agent |
+| Multi-agent security gate with quorum (2-of-3) | `security-quorum` agent enrolled at HCF `post-implementation` hook |
 | Verdict provenance preserved across runs | `security-quorum` writes one episode per audit; next audit sees it |
-| Pre-flight stack health check (scales to N wires) | `wires.json` registry loop |
+| Pre-flight stack health check (scales to N wires) | `wires.json` registry loop (includes `enrollments[]`) |
 | Session-decision capture | SubagentStop + SessionEnd hooks (pb-graphiti) |
-| No parallel-dev work vs HCF | All extensions via context + pipeline.md slots; HCF source untouched |
+| No parallel-dev work vs HCF | All extensions via context + project-local agent overrides; HCF source untouched |
 | Authority Scope hygiene | Each playbook declares its truth domain — no contradictory guidance |
 
 ### Open concerns
 
 These are real trade-offs the design accepts. Revisit when they bite in practice.
 
-**Per-task review granularity.** `gitnexus-reviewer` runs once at batch-end via the `pipeline.md` slot, not after every task. If a tdd-worker introduces a regression in task 3 of 5, the reviewer surfaces it only after task 5 finishes — slower feedback than a per-task gate would give. The trade is that no HCF wrapping is needed; HCF source stays clean.
+**Per-task review granularity.** `gitnexus-reviewer` enrolls at HCF's `post-implementation` hook, which fires once at batch-end, not after every task. If a tdd-worker introduces a regression in task 3 of 5, the reviewer surfaces it only after task 5 finishes — slower feedback than a per-task gate would give. (HCF's `post-batch` hook fires per batch; if the per-batch cadence matters more than per-task, switch the agent's `phase` to `post-batch` in `.claude/agents/gitnexus-reviewer.md`.) The trade is that no HCF wrapping is needed; HCF source stays clean.
 
 **Parallel-test resource collision.** HCF defaults run the full project test suite at end of each `tdd-worker` task AND again in post-implementation. Under parallel worker dispatch this can collide on shared MariaDB rows, Redis cache, OpenSearch indexes, Playwright sessions, `var/` artefacts. Mitigation lives in each project's `.claude/testing.md` — scope test commands to targeted invocation (per-file / per-testsuite) rather than full-suite, so workers don't all hit the whole DB. Or run with `--max-parallel 1` if the project's HCF supports it.
 
@@ -188,9 +193,10 @@ These are real trade-offs the design accepts. Revisit when they bite in practice
 
 ## What pb-hcf is NOT
 
-- **Not a wrapper for HCF flows.** No `plan-orchestrate` substitution. The security + reviewer agents drop into HCF's native `pipeline.md` post-implementation slot.
+- **Not a wrapper for HCF flows.** No `plan-orchestrate` substitution. The security + reviewer agents enroll into HCF's native v2 hook pipeline via agent frontmatter (opt-in via `--enable`).
 - **Not a clone of HCF.** All HCF source files (agents, skills) stay upstream-clean.
 - **Not a marketplace.** Lives as a single plugin; install via the standard plugin marketplace flow.
+- **Does not touch `.claude/pipeline.md`.** That file is legacy in HCF v2.0.0+ — `/hcf:project-update` is the only thing allowed to migrate or remove it. `/pb-hcf:wire` refuses to run while it exists.
 
 ## Adding a new playbook
 
@@ -207,5 +213,6 @@ No other plugin needs to change. Wire registry auto-discovers; CLAUDE.md fence a
 |---|---|
 | v0.1.0 | gitnexus-reviewer agent + gitnexus.md playbook + graphiti.md playbook + multi-playbook `wire` skill. |
 | v0.2.0 | Security quorum: `security-quorum` orchestrator + 3 specialist agents + `security.md` playbook. 2-of-3 consensus, ~$0.30-1.00 per run. |
+| v0.3.0 | **BREAKING — aligned with HCF v2.0.0.** Wire no longer writes `.claude/pipeline.md` (that file blocks HCF planning in v2). Replaced with opt-in HCF v2 hook enrollment via agent frontmatter: `/pb-hcf:wire --enable=<name>[,<name>]` (or `--enable-all`) copies the named bundled agent to `.claude/agents/<name>.md` with `phase: post-implementation` + `order` + `mode` stamped. Wire halts if a legacy `pipeline.md` is present and tells the user to run `/hcf:project-update` first. `wires.json` gains `enrollments[]` for downstream pre-flight visibility. Graphiti playbook adds search-discipline guidance. |
 
 Next planned playbook: `playwright.md` — folds in E2E test design and coverage guidance.

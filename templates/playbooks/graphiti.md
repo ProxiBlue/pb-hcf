@@ -55,6 +55,28 @@ Every fact has a `group_id`:
 
 For writes from a project session: default to `<project-id>`. Only use `fleet` if the fact would be valuable in an unrelated client project tomorrow.
 
+## Search discipline — exhaust strategies before blaming ingest
+
+When a Graphiti search returns thin or no results, **do NOT conclude "the data isn't in the graph"**. The default failure mode is search-method, not ingest-gap. Mandatory sequence before declaring missing:
+
+1. **Run BOTH `search_memory_facts` AND `search_nodes`** for the same query. They index differently — a fact mentioning ticket `#X` may have no entity NODE called `ticket #X`, yet the facts describing its root cause (`AvaTax helper`, `Uptactics TaxCompanyValue`) ARE indexable.
+2. **Re-query with 3–4 synonyms.** Domain vocabulary varies — `payment failure` won't match a fact phrased `infinite loop in checkout`. Try: ticket number, symptom, module/vendor name, dated event.
+3. **Search known entity names directly.** If you know the incident touched `Avalara AvaTax` or `Braintree`, `search_nodes(query="Avalara AvaTax")` and read the summary. Entity nodes rank well; substring matches inside fact bodies do not.
+4. **Scope bi-temporally.** Use `valid_at_min` / `valid_at_max`. **Facts marked `invalid_at: <date>` are de-prioritized by default** — they're not gone; they're superseded. To find resolved/old incidents, widen the time window.
+5. **Check `get_episodes` and existing entities** before assuming a new node is needed. A newly-created `ticket #X` node in this session may falsely look like "graphiti finally has it" — when the fact-level data was there all along.
+
+If you've done all 5 and STILL come up empty: that's evidence-based "not in graphiti". Otherwise the deficit is at the searcher.
+
+**Banned phrases — not allowed until the 5-step sequence has been run AND cited:**
+
+- "graphiti returned generic facts"
+- "tickets are not ingested"
+- "the cron isn't writing"
+- "data is missing from the knowledge graph"
+- "graphiti doesn't have this"
+
+If the instinct to write one of these arises before the 5 steps are done, that instinct is the signal — go run the steps.
+
 ## Plan-Create playbook (HCF `/hcf:plan-create`)
 
 Plan-creation is where graphiti has the highest leverage. Before drafting `_plan.md`:

@@ -1,14 +1,19 @@
 ---
 name: wire
-description: Wire HCF agents (devils-advocate, tdd-worker, standards-enforcer, plus pb-hcf's gitnexus-reviewer post-implementation agent) into the fleet's per-domain playbooks (gitnexus, graphiti, security, …) by installing playbook files into .claude/<name>.md, appending a single fenced section to .claude/CLAUDE.md pointing to each, and recording wire state in .claude/wires.json. Multi-playbook successor to the per-plugin wire skills (replaces /pb-gitnexus:wire). Run AFTER /hcf:project-setup.
+description: Wire HCF agents (devils-advocate, tdd-worker, standards-enforcer, plus pb-hcf's gitnexus-reviewer + security-quorum agents) into the fleet's per-domain playbooks (gitnexus, graphiti, security, …) by installing playbook files into .claude/<name>.md, appending a single fenced section to .claude/CLAUDE.md, optionally enrolling pb-hcf agents into HCF v2 hook frontmatter (--enable=<name>[,<name>]), and recording wire state in .claude/wires.json. Multi-playbook successor to the per-plugin wire skills (replaces /pb-gitnexus:wire). Run AFTER /hcf:project-setup.
 disable-model-invocation: true
 ---
 
 # /pb-hcf:wire
 
-Install pb-hcf's fleet playbooks into the current project so HCF's existing agents (devils-advocate, tdd-worker, standards-enforcer) and pb-hcf's bundled gitnexus-reviewer agent pick up the per-domain guidance via context. This is the consolidated replacement for `/pb-gitnexus:wire` — one skill installs ALL playbooks under `pb-hcf/templates/playbooks/` instead of one skill per plugin.
+Install pb-hcf's fleet playbooks into the current project so HCF's existing agents (devils-advocate, tdd-worker, standards-enforcer) and pb-hcf's bundled agents (`gitnexus-reviewer`, `security-quorum`) pick up the per-domain guidance via context. This is the consolidated replacement for `/pb-gitnexus:wire` — one skill installs ALL playbooks under `pb-hcf/templates/playbooks/` instead of one skill per plugin.
 
-**Architectural note:** This skill does NOT override any agent under `.claude/agents/`. In DDEV envs `.claude/agents/` is typically read-only-mounted. Wiring happens via project-local `.claude/<playbook>.md` files referenced from `.claude/CLAUDE.md` — HCF's default agents auto-load CLAUDE.md, follow the pointers, and pick up the per-domain rules transitively. Same pattern as pb-gitnexus used.
+**Architectural note (HCF v2.0.0+):** HCF dropped `.claude/pipeline.md`. Agents now enroll into the 8 hook points (`pre-plan`, `post-plan`, `pre-implementation`, `pre-batch`, `post-batch`, `post-implementation`, `pre-commit`, `post-commit`) via YAML frontmatter (`phase:` / `order:` / `mode:`). See `${CLAUDE_PLUGIN_ROOT}/../hcf/HOOKS.md` (or `https://github.com/markshust/hcf#pipeline`).
+
+This skill:
+- Installs project-local playbook docs at `.claude/<name>.md` referenced from a fenced section in `.claude/CLAUDE.md` (consulted via context by HCF's bundled agents — no override of the read-only `.claude/agents/` mount needed for the playbook layer).
+- **Optionally** enrolls pb-hcf bundled agents into HCF's hook pipeline by copying them to `.claude/agents/<name>.md` with the appropriate frontmatter stamped — only when the user passes `--enable=<name>[,<name>]`. Default is off (the plugin agents stay dormant, matching HCF's `standards-enforcer` convention).
+- **Refuses to run while a legacy `.claude/pipeline.md` is present** — HCF gates `plan-create` / `plan-orchestrate` until it is migrated via `/hcf:project-update`. Tell the user, stop, do not write anything.
 
 ## Prerequisites Check
 
@@ -17,6 +22,10 @@ Abort with a clear message if any fail:
 1. **Run from project root** — current working directory contains a recognisable project marker (`composer.json`, `package.json`, `pyproject.toml`, `.git/`).
 2. **HCF project-setup has run** — `.claude/CLAUDE.md` must exist (created by `/hcf:project-setup`). If absent, tell user to run `/hcf:project-setup` first and stop.
 3. **Plugin install path resolvable** — `$CLAUDE_PLUGIN_ROOT/templates/playbooks/` must be readable and contain at least one `*.md` file. If empty, this install is corrupt — tell user to `/plugin reinstall pb-hcf`.
+4. **No legacy `.claude/pipeline.md`** — if present, halt immediately. Tell the user:
+   > HCF v2.0.0 retired `.claude/pipeline.md`. While it exists, HCF blocks `plan-create` and `plan-orchestrate`. Run `/hcf:project-update` first — it migrates any active entries into per-agent frontmatter (`.claude/agents/<name>.md` with `phase:` stamped) and removes the file — then re-run `/pb-hcf:wire`.
+
+   Do NOT touch `pipeline.md` from this skill. Migration is HCF's job; this skill only wires once the migration is done.
 
 ## Playbook discovery
 
@@ -68,7 +77,38 @@ Each playbook declares its **Authority scope** at the top — defer to the named
 
 Only emit pointer lines for playbooks that actually got installed in step 1. Re-runs replace the entire fenced section (not duplicate, not split).
 
-### 3. Write `.claude/wires.json` registry
+### 3. Detect + replace legacy `pb-gitnexus:` fence (migration)
+
+If `.claude/CLAUDE.md` contains a legacy `<!-- pb-gitnexus:start --> ... <!-- pb-gitnexus:end -->` block from the deprecated wire, remove it before writing the new `pb-hcf:` fence (handled inline in step 2). Report this as `migrated legacy pb-gitnexus fence → pb-hcf fence` in the completion output. Also clean up `.claude/gitnexus.json` if present (renamed semantically — its data is now in `.claude/wires.json`).
+
+### 4. Optional hook enrollment for pb-hcf bundled agents
+
+pb-hcf ships these enrollable agents — all written for HCF's `post-implementation` hook (whole-diff review at plan-end, not per-task):
+
+| Agent | Hook | Suggested `order` | `mode` | What it does |
+|---|---|---|---|---|
+| `gitnexus-reviewer` | `post-implementation` | `30` | `single` | Diff-impact review via GitNexus code graph |
+| `security-quorum` | `post-implementation` | `70` | `single` | 3-agent 2-of-3 security consensus (spawns its own trio) |
+
+**Default: nothing is enrolled.** The agents stay dormant — visible to `Task` but not auto-fired in the HCF pipeline (mirrors how HCF ships `standards-enforcer` with its `phase` commented out).
+
+**To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example: `/pb-hcf:wire --enable=gitnexus-reviewer,security-quorum`. For each enrolled name:
+
+1. Read the plugin's source agent at `$CLAUDE_PLUGIN_ROOT/agents/<name>.md`.
+2. Write a project-local override at `.claude/agents/<name>.md` containing the plugin agent's body **plus** these frontmatter keys stamped in (alongside existing `name` / `description` / `model` / `tools`):
+   ```yaml
+   phase: post-implementation
+   order: <30 for gitnexus-reviewer, 70 for security-quorum>
+   mode: single
+   ```
+3. Idempotency: if `.claude/agents/<name>.md` already exists and already declares `phase: post-implementation`, skip silently. If it exists with a *different* `phase` value, leave it untouched and warn (user has expressed a deliberate choice).
+4. **DDEV read-only-mount note**: in some DDEV layouts `.claude/agents/` is mounted from a centralised source. If the directory is read-only, this step fails with a clear message instructing the user to either drop the mount, write the override file out-of-band, or wire from the host. Do NOT silently fall back to writing into `pipeline.md` — that file is gone in HCF v2.
+
+**To disable a previously-enrolled agent**: delete `.claude/agents/<name>.md` (or remove the `phase` key from its frontmatter). HCF's discovery routine reads frontmatter directly; no other state needs updating.
+
+`--enable-all` is also accepted as a convenience for `--enable=gitnexus-reviewer,security-quorum`.
+
+### 5. Write `.claude/wires.json` registry
 
 ```json
 {
@@ -89,32 +129,39 @@ Only emit pointer lines for playbooks that actually got installed in step 1. Re-
       "reachable": true,
       "details": { "neo4jConnected": true }
     }
+  ],
+  "enrollments": [
+    {
+      "name": "gitnexus-reviewer",
+      "file": ".claude/agents/gitnexus-reviewer.md",
+      "phase": "post-implementation",
+      "order": 30,
+      "mode": "single",
+      "source": "pb-hcf"
+    }
   ]
 }
 ```
 
+`enrollments[]` is populated by scanning every `.claude/agents/*.md` for `phase:` in frontmatter — this catches both pb-hcf-stamped overrides and any other locally-enrolled agents (e.g. an uncommented `standards-enforcer`). `source` is `"pb-hcf"` when the agent name matches a pb-hcf bundled agent, else `"local"`.
+
 This file is the **wire registry** — downstream skills like `/proxiblue-skills:workflow-build-feature` pre-flight, and CI checks, can read it to verify everything's still up before kicking off a long run. Updated every wire / re-wire / re-probe.
-
-### 4. Detect + replace legacy `pb-gitnexus:` fence (migration)
-
-If `.claude/CLAUDE.md` contains a legacy `<!-- pb-gitnexus:start --> ... <!-- pb-gitnexus:end -->` block from the deprecated wire, remove it before writing the new `pb-hcf:` fence. Report this as `migrated legacy pb-gitnexus fence → pb-hcf fence` in the completion output. Also clean up `.claude/gitnexus.json` if present (renamed semantically — its data is now in `.claude/wires.json`).
-
-### 5. Do NOT write to `.claude/agents/`
-
-That directory is typically a read-only centralised mount in DDEV envs. Agents read project-local `.claude/<playbook>.md` from CLAUDE.md context — that's all that's needed.
 
 ### 6. Report what changed
 
-List each created / modified / removed file with a one-line summary. Include reachability state per playbook and the recommended fix for any that probed as unreachable.
+List each created / modified / removed file with a one-line summary. Include reachability state per playbook, the recommended fix for any that probed as unreachable, and the current `enrollments[]` set (or "none — pass --enable=… to activate").
 
 ## Idempotency
 
-- Re-running is safe. Fenced section replaces, not duplicates. `wires.json` is rewritten with fresh timestamp + current probe state.
+- Re-running is safe. Fenced section replaces, not duplicates. `wires.json` is rewritten with fresh timestamp + current probe + enrollment state.
 - For overwritten playbook files, show the diff and confirm unless `--no-overwrite` is passed.
+- For enrollment files (`.claude/agents/<name>.md`): re-running `--enable=<name>` on an already-enrolled agent at the same `phase` is a no-op; on a different `phase` it warns and refuses.
 - Flags:
-  - `--reprobe` → re-run only the reachability probes, update `wires.json`, don't touch playbook files or CLAUDE.md.
+  - `--reprobe` → re-run only the reachability probes, update `wires.json`, don't touch playbook files, CLAUDE.md, or `.claude/agents/`.
   - `--no-overwrite` → skip diff prompts; leave existing playbook files untouched if they differ.
-  - `--migrate-only` → only run the legacy `pb-gitnexus:` fence migration step (step 4), don't install or probe anything.
+  - `--migrate-only` → only run the legacy `pb-gitnexus:` fence migration step (step 3), don't install or probe anything.
+  - `--enable=<name>[,<name>]` → enroll the named pb-hcf bundled agent(s) into HCF's hook pipeline (see step 4).
+  - `--enable-all` → shorthand for `--enable=gitnexus-reviewer,security-quorum`.
 
 ## Completion Output
 
@@ -123,24 +170,31 @@ List each created / modified / removed file with a one-line summary. Include rea
     - gitnexus.md (reachable, 3 repos indexed)
     - graphiti.md (reachable, Neo4j connected)
 ✓ Updated fenced section in .claude/CLAUDE.md (pb-hcf, replaces legacy pb-gitnexus if present)
-✓ Wrote .claude/wires.json registry
 ✓ Migrated legacy pb-gitnexus fence (if found)
+✓ Hook enrollments (.claude/agents/):
+    - gitnexus-reviewer  → post-implementation (order 30, mode single)   [newly enabled]
+    - security-quorum    → post-implementation (order 70, mode single)   [unchanged]
+    (Pass --enable=<name>[,<name>] to add more, --enable-all for both bundled agents.)
+✓ Wrote .claude/wires.json registry
 
 Reachability summary:
   gitnexus  : ✓ http://gitnexus:4747/ (200, 3 repos)
   graphiti  : ✓ mcp__graphiti__get_status (ok)
 
-Next: /hcf:plan-create as usual. HCF's agents will now consult the per-domain
-playbooks when their task neighborhood matches. To verify wiring loaded:
+Next: /hcf:plan-create as usual. HCF's agents will consult the per-domain
+playbooks when their task neighborhood matches, and any enrolled pb-hcf
+agents fire at their declared hook. To verify wiring loaded:
 
   cat .claude/CLAUDE.md | grep -A1 "pb-hcf:start"
-  cat .claude/wires.json | jq .playbooks
+  cat .claude/wires.json | jq '.playbooks, .enrollments'
+  ls .claude/agents/
 ```
 
 ## What this skill does NOT do
 
-- **No agent overrides.** RO-mount-safe.
+- **No silent agent enrollment.** Bundled pb-hcf agents only land in `.claude/agents/` when `--enable=<name>` is passed.
 - **No edits to HCF's central plugin files.** HCF upstream stays clean.
+- **No `.claude/pipeline.md` writes — ever.** That file is legacy in HCF v2.0.0+ and HCF gates the planning workflow while it exists. Migration is `/hcf:project-update`'s job, not this skill's.
 - **No edits to `~/claude-skills-central/mcps/.mcp.json`.** Central MCP config is managed separately; this skill only writes per-project context.
 - **No container management.** Probes only; does not start / stop / build.
 - **No automatic re-wire on plugin update.** When pb-hcf bumps version and ships new playbooks, run `/pb-hcf:wire` manually in each project to pick them up.

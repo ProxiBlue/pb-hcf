@@ -10,9 +10,11 @@ Install pb-hcf's fleet playbooks into the current project so HCF's existing agen
 
 **Architectural note (HCF v2.0.0+):** HCF dropped `.claude/pipeline.md`. Agents now enroll into the 8 hook points (`pre-plan`, `post-plan`, `pre-implementation`, `pre-batch`, `post-batch`, `post-implementation`, `pre-commit`, `post-commit`) via YAML frontmatter (`phase:` / `order:` / `mode:`). See `${CLAUDE_PLUGIN_ROOT}/../hcf/HOOKS.md` (or `https://github.com/markshust/hcf#pipeline`).
 
+**Architectural note (RO-mount-respecting fleet design):** Most projects in the ProxiBlue fleet mount `~/claude-code-magento-agents/` RO at `/var/www/html/.claude/agents/` — by design, so containerized agents can't modify gatekept config. HCF's discovery globs `.claude/agents/*.md` inside the container, which means agent files MUST live in the mount source (`~/claude-code-magento-agents/`), not in project-local `.claude/agents/` (which the mount shadows). This skill's `--enable` flow auto-detects the mount source from the project's `.ddev/docker-compose*.yaml` and writes there. Projects without that mount fall back to project-local `.claude/agents/`. All writes happen from the host shell so the RO-mount intent is preserved (container view stays read-only).
+
 This skill:
-- Installs project-local playbook docs at `.claude/<name>.md` referenced from a fenced section in `.claude/CLAUDE.md` (consulted via context by HCF's bundled agents — no override of the read-only `.claude/agents/` mount needed for the playbook layer).
-- **Optionally** enrolls pb-hcf bundled agents into HCF's hook pipeline by copying them to `.claude/agents/<name>.md` with the appropriate frontmatter stamped — only when the user passes `--enable=<name>[,<name>]`. Default is off (the plugin agents stay dormant, matching HCF's `standards-enforcer` convention).
+- Installs project-local playbook docs at `.claude/<name>.md` referenced from a fenced section in `.claude/CLAUDE.md` (consulted via context by HCF's bundled agents — no agent-dir write needed for the playbook layer; `.claude/` itself is project-RW).
+- **Optionally** enrolls pb-hcf bundled agents into HCF's hook pipeline by copying them — with appropriate frontmatter stamped — to the resolved enrollment target directory (`~/claude-code-magento-agents/` for fleet-mounted projects, `.claude/agents/` for the fallback). Only when the user passes `--enable=<name>[,<name>]` (or `--enable-all`). Default is off (the plugin agents stay dormant in plugin source). Idempotent: re-runs skip silently if an agent is already enrolled with the expected `phase`.
 - **Refuses to run while a legacy `.claude/pipeline.md` is present** — HCF gates `plan-create` / `plan-orchestrate` until it is migrated via `/hcf:project-update`. Tell the user, stop, do not write anything.
 
 ## Prerequisites Check
@@ -102,30 +104,50 @@ pb-hcf ships 10 enrollable agents that together implement the **full** custom-wo
 
 **Default: nothing is enrolled.** All 10 agents ship dormant in `$PLUGIN/agents/<name>.md` without `phase` — visible to `Task` but not auto-fired in the pipeline (mirrors how HCF ships `standards-enforcer` with its `phase` commented out).
 
+### Target-directory resolution (host-side, fleet-aware)
+
+Wire's `--enable` writes agent files to wherever HCF's discovery routine globs `.claude/agents/*.md` *from inside the container*. In the ProxiBlue ddev fleet that path is RO-mounted from a host-side central dir (`~/claude-code-magento-agents/`) — wire MUST write to the mount source, not the project-local `.claude/agents/` (which is shadowed by the mount and host-side root-owned). For projects without that mount, wire falls back to project-local `.claude/agents/`.
+
+Detection order:
+
+1. **`--target=<host-path>` flag** — explicit override. Use this exact directory.
+2. **Parse the project's `.ddev/docker-compose*.yaml`** — look for a volume line whose target ends with `:/var/www/html/.claude/agents:ro` (or `:rw`). Extract the host-side source path (before the colon, with `$HOME` expanded). That's the target. Fleet pattern: `~/claude-code-magento-agents`.
+3. **No mount found** — fall back to project-local `.claude/agents/` (writable host directory at project root).
+
+In all three, the path must be **writable from host**. If not, abort with a clear message naming the path and the chown command to fix it.
+
 **To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example:
 - `/pb-hcf:wire --enable=pre-flight-check,gitnexus-reviewer,security-quorum` — minimal sane set
 - `/pb-hcf:wire --enable-all` — enroll **all 10** (full workflow-build-feature replacement)
 
-For each enrolled name:
+For each enrolled name (let `TARGET` = resolved target directory per above):
 
-1. Read the plugin's source agent at `$CLAUDE_PLUGIN_ROOT/agents/<name>.md`.
-2. Write a project-local override at `.claude/agents/<name>.md` containing the plugin agent's body **plus** the agent's default frontmatter from the table above stamped in (alongside existing `name` / `description` / `model` / `tools`):
-   ```yaml
-   phase: <from table>
-   order: <from table>
-   mode: <from table>
-   ```
-3. Idempotency: if `.claude/agents/<name>.md` already exists with the same `phase`, skip silently. If it exists with a *different* `phase` value, leave it untouched and warn (user has expressed a deliberate choice — e.g. they moved gitnexus-reviewer from `post-implementation` to `post-batch` for per-batch cadence).
-4. **DDEV read-only-mount note**: in some DDEV layouts `.claude/agents/` is mounted from a centralised source. If the directory is read-only, this step fails with a clear message instructing the user to either drop the mount, write the override file out-of-band, or wire from the host. Do NOT silently fall back to writing into `pipeline.md` — that file is gone in HCF v2.
+1. **Idempotency check (skip-if-present-and-correct):**
+   - If `$TARGET/<name>.md` **exists** AND its frontmatter declares `phase: <expected>` (matches the table above) → **skip silently** (`already enrolled — no action`).
+   - If `$TARGET/<name>.md` **exists** with a **different `phase`** → leave it untouched, **warn** that the user has expressed a deliberate choice (e.g. they moved gitnexus-reviewer from `post-implementation` to `post-batch`). Do NOT overwrite.
+   - If `$TARGET/<name>.md` **does not exist** → continue to step 2.
+2. **Copy + stamp:**
+   - Read the plugin's source agent at `$CLAUDE_PLUGIN_ROOT/agents/<name>.md` (this is the canonical body without `phase`).
+   - Insert these three lines into its YAML frontmatter (immediately before the closing `---`):
+     ```yaml
+     phase: <from table>
+     order: <from table>
+     mode: <from table>
+     ```
+   - Write the result to `$TARGET/<name>.md`.
+3. **Library agents (no phase):** `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor` get copied to `$TARGET/<name>.md` **as-is** (no `phase` stamp) when `--enable=security-quorum` (or `--enable-all`) is passed. The quorum orchestrator spawns them via `Task` at runtime; they must exist somewhere the agent loader can find them.
+4. **DO NOT touch `$TARGET/<name>.md` for any name not on the enrollable list.** The central dir may host unrelated content (e.g. the `~/claude-code-magento-agents/` library subdirs); wire MUST leave that alone.
 
-**To disable a previously-enrolled agent**: delete `.claude/agents/<name>.md` (or remove the `phase` key from its frontmatter). HCF's discovery routine reads frontmatter directly; no other state needs updating.
+**The enrolling action is fleet-wide when the target is a shared central dir.** All projects that mount the same source will see the same enrolled agents. Per-project granularity is achieved at the mount layer (which projects mount it), not at the wire layer. If you want a single project to differ from the fleet, use a project-specific target via `--target=<host-path>` AND change that project's mount to point at the project-specific dir.
+
+**To disable a previously-enrolled agent**: delete `$TARGET/<name>.md` (or remove the `phase` key from its frontmatter). HCF's discovery routine reads frontmatter directly; no other state needs updating. Container picks up the change on next plugin discovery (typically next claude-code session).
 
 **Recommended enrollment sets:**
 
 | Scenario | Recommended `--enable` |
 |---|---|
 | Magento project, full custom workflow (replaces workflow-build-feature) | `--enable-all` |
-| Magento project, no auto-test-plan posting | `--enable-all` then `rm .claude/agents/post-plan-manual-test-plan.md` |
+| Magento project, no auto-test-plan posting | `--enable-all` then `rm $TARGET/post-plan-manual-test-plan.md` |
 | Non-Magento project, graphiti recall only | `--enable=pre-plan-graphiti-recall,graphiti-reviewer,pre-implementation-incident-recall` |
 | Security-focused only | `--enable=pre-flight-check,security-quorum,pre-commit-adversarial-pass` |
 | Minimal (just structural review) | `--enable=gitnexus-reviewer` |
@@ -152,10 +174,12 @@ For each enrolled name:
       "details": { "neo4jConnected": true }
     }
   ],
+  "enrollmentTarget": "/home/lucas/claude-code-magento-agents",
+  "enrollmentTargetSource": "ddev-mount",
   "enrollments": [
     {
       "name": "gitnexus-reviewer",
-      "file": ".claude/agents/gitnexus-reviewer.md",
+      "file": "/home/lucas/claude-code-magento-agents/gitnexus-reviewer.md",
       "phase": "post-implementation",
       "order": 30,
       "mode": "single",
@@ -165,7 +189,9 @@ For each enrolled name:
 }
 ```
 
-`enrollments[]` is populated by scanning every `.claude/agents/*.md` for `phase:` in frontmatter — this catches both pb-hcf-stamped overrides and any other locally-enrolled agents (e.g. an uncommented `standards-enforcer`). `source` is `"pb-hcf"` when the agent name matches a pb-hcf bundled agent, else `"local"`.
+`enrollmentTarget` is the resolved host-side path agents land in. `enrollmentTargetSource` is one of `"flag"` (`--target` passed), `"ddev-mount"` (detected from docker-compose), or `"project-local"` (fallback to `.claude/agents/`).
+
+`enrollments[]` is populated by scanning every `.md` file in `enrollmentTarget` for `phase:` in frontmatter — this catches both pb-hcf-stamped agents and any other locally-enrolled agents (e.g. an uncommented `standards-enforcer`). `source` is `"pb-hcf"` when the agent name matches a pb-hcf bundled agent, else `"local"`. The recorded `file` is an **absolute host path** since the target may be outside the project root in fleet-shared deployments.
 
 This file is the **wire registry** — downstream skills like `/proxiblue-skills:workflow-build-feature` pre-flight, and CI checks, can read it to verify everything's still up before kicking off a long run. Updated every wire / re-wire / re-probe.
 
@@ -177,13 +203,14 @@ List each created / modified / removed file with a one-line summary. Include rea
 
 - Re-running is safe. Fenced section replaces, not duplicates. `wires.json` is rewritten with fresh timestamp + current probe + enrollment state.
 - For overwritten playbook files, show the diff and confirm unless `--no-overwrite` is passed.
-- For enrollment files (`.claude/agents/<name>.md`): re-running `--enable=<name>` on an already-enrolled agent at the same `phase` is a no-op; on a different `phase` it warns and refuses.
+- For enrollment files (`$TARGET/<name>.md`): re-running `--enable=<name>` on an already-enrolled agent at the same `phase` is a no-op (silent skip); on a different `phase` it warns and refuses to overwrite.
 - Flags:
-  - `--reprobe` → re-run only the reachability probes, update `wires.json`, don't touch playbook files, CLAUDE.md, or `.claude/agents/`.
+  - `--reprobe` → re-run only the reachability probes, update `wires.json`, don't touch playbook files, CLAUDE.md, or the enrollment target.
   - `--no-overwrite` → skip diff prompts; leave existing playbook files untouched if they differ.
   - `--migrate-only` → only run the legacy `pb-gitnexus:` fence migration step (step 3), don't install or probe anything.
-  - `--enable=<name>[,<name>]` → enroll the named pb-hcf bundled agent(s) into HCF's hook pipeline (see step 4).
-  - `--enable-all` → shorthand for `--enable=gitnexus-reviewer,security-quorum`.
+  - `--enable=<name>[,<name>]` → enroll the named pb-hcf bundled agent(s) into HCF's hook pipeline (see step 4 for full semantics and target-directory resolution).
+  - `--enable-all` → shorthand for enrolling all 10 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,post-plan-manual-test-plan,pre-implementation-incident-recall,gitnexus-reviewer,graphiti-reviewer,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
+  - `--target=<host-path>` → override the auto-detected enrollment target directory. Useful for non-ddev projects or per-project enrollment overrides. Path must exist and be writable from host.
 
 ## Completion Output
 

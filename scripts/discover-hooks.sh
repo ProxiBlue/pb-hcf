@@ -41,25 +41,47 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-# Auto-detect target directory: parse .ddev/docker-compose*.yaml for the
-# `.claude/agents` RO mount source. Fleet pattern is ~/claude-code-magento-agents.
-# Falls back to project-local .claude/agents for non-mounted projects.
+# Auto-detect target directory.
+#
+# Context matters: this script runs both from HOST (where the mount source —
+# typically ~/claude-code-magento-agents — IS writable) and from inside the
+# DDEV container (where the same agents are visible at .claude/agents/ via the
+# RO mount; the host-side source path is irrelevant inside the container).
+#
+# Detection order:
+#   1. --target=<path> flag — explicit override.
+#   2. Project-local .claude/agents/ — if it exists and contains .md files. This
+#      catches the container-side case (where the RO mount makes the agents
+#      visible at this path) AND the host-side non-fleet-mount case (project-
+#      local agent files written directly).
+#   3. Parse .ddev/docker-compose*.yaml for the agents mount source — IF the
+#      detected source path exists on disk (host-side case where mount source
+#      lives outside the project).
+#   4. Fall back to .claude/agents/ even if empty — caller sees "all empty"
+#      enumeration rather than an error.
 if [[ -z "$TARGET" ]]; then
-  for f in .ddev/docker-compose*.yaml; do
-    [[ -f "$f" ]] || continue
-    src=$(grep -E ':/var/www/html/\.claude/agents:r[ow]' "$f" 2>/dev/null \
-          | head -1 \
-          | sed -E 's/^[[:space:]]*-[[:space:]]*"?([^:"]+):.*$/\1/')
-    if [[ -n "$src" ]]; then
-      TARGET=$(eval echo "$src")  # expand $HOME, $USER, etc.
-      break
-    fi
-  done
+  if [[ -d ".claude/agents" && -n "$(ls .claude/agents/*.md 2>/dev/null)" ]]; then
+    TARGET=".claude/agents"
+  else
+    for f in .ddev/docker-compose*.yaml; do
+      [[ -f "$f" ]] || continue
+      src=$(grep -E ':/var/www/html/\.claude/agents:r[ow]' "$f" 2>/dev/null \
+            | head -1 \
+            | sed -E 's/^[[:space:]]*-[[:space:]]*"?([^:"]+):.*$/\1/')
+      if [[ -n "$src" ]]; then
+        candidate=$(eval echo "$src")  # expand $HOME, $USER, etc.
+        if [[ -d "$candidate" ]]; then
+          TARGET="$candidate"
+          break
+        fi
+      fi
+    done
+  fi
 fi
 [[ -z "$TARGET" ]] && TARGET=".claude/agents"
 
 if [[ ! -d "$TARGET" ]]; then
-  echo "discover-hooks: target directory not found: $TARGET" >&2
+  echo "discover-hooks: target directory not found (project root '$(pwd)' has no .claude/agents/ and no ddev mount source resolves to an existing path)" >&2
   exit 1
 fi
 

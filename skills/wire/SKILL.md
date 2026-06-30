@@ -83,30 +83,52 @@ If `.claude/CLAUDE.md` contains a legacy `<!-- pb-gitnexus:start --> ... <!-- pb
 
 ### 4. Optional hook enrollment for pb-hcf bundled agents
 
-pb-hcf ships these enrollable agents — all written for HCF's `post-implementation` hook (whole-diff review at plan-end, not per-task):
+pb-hcf ships 10 enrollable agents that together implement the **full** custom-workflow that `/proxiblue-skills:workflow-build-feature` used to orchestrate as a wrapper. Each agent enrolls at a specific HCF v2 hook so vanilla `/hcf:plan-create` + `/hcf:plan-orchestrate` execute the entire flow — no wrapping skill required.
 
-| Agent | Hook | Suggested `order` | `mode` | What it does |
+| Agent | `phase` | `order` | `mode` | What it does |
 |---|---|---|---|---|
-| `gitnexus-reviewer` | `post-implementation` | `30` | `single` | Diff-impact review via GitNexus code graph |
-| `security-quorum` | `post-implementation` | `70` | `single` | 3-agent 2-of-3 security consensus (spawns its own trio) |
+| `pre-flight-check` | `pre-plan` | `5` | `single` | Verifies onboarding artifacts, loops `wires.json` probes, refuses to run on protected branches (`live` / `uat` / `main` / `master`). Replaces workflow-build-feature steps 1–3. |
+| `pre-plan-graphiti-recall` | `pre-plan` | `10` | `single` | Searches Graphiti for the feature topic — prior decisions, incidents, vendor verdicts, planned-but-not-built. Returns Historical Context block. |
+| `post-plan-manual-test-plan` | `post-plan` | `50` | `single` | After `devils-advocate` finishes, mines `_plan.md` + per-task Requirements, derives user stories, posts a phased GH ticket comment + writes `.claude/test-plans/<ticket>.yml` per SCHEMA. Replaces workflow-build-feature step 6. |
+| `pre-implementation-incident-recall` | `pre-implementation` | `10` | `single` | Per-task Graphiti lookup of prior incidents in the touched area. PREPENDS findings to each `_task-NNN.md` so tdd-workers see them. |
+| `gitnexus-reviewer` | `post-implementation` | `30` | `single` | Diff-impact review via GitNexus code graph (callers, plugins, observers, DI wiring). |
+| `graphiti-reviewer` | `post-implementation` | `40` | `single` | Diff-vs-knowledge-graph review (prior decisions, incidents, vendor verdicts, planned work overlap). |
+| `security-quorum` | `post-implementation` | `70` | `single` | 3-agent 2-of-3 security consensus (spawns its own trio: static-analyst, adversarial-tester, defensive-auditor). |
+| `pre-commit-adversarial-pass` | `pre-commit` | `10` | `single` | One last adversarial-tester pass on the staged diff after tests pass, before commit. Returns PASS or DEFER (advisory; doesn't block commit). |
+| `post-commit-verify-handoff` | `post-commit` | `10` | `single` | Prints the fresh-thread instruction for `/verify-feature` (skill convention). |
+| `post-commit-build-summary` | `post-commit` | `20` | `single` | Prints the BUILD COMPLETE summary aggregating every hook's verdict + deferred concerns + ready-to-deploy guidance. Replaces workflow-build-feature step 13. |
 
-**Default: nothing is enrolled.** The agents stay dormant — visible to `Task` but not auto-fired in the HCF pipeline (mirrors how HCF ships `standards-enforcer` with its `phase` commented out).
+(The 3 security specialists — `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor` — are library agents spawned BY `security-quorum` at runtime. They do NOT declare a `phase` themselves and are NOT in the enrollable list.)
 
-**To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example: `/pb-hcf:wire --enable=gitnexus-reviewer,security-quorum`. For each enrolled name:
+**Default: nothing is enrolled.** All 10 agents ship dormant in `$PLUGIN/agents/<name>.md` without `phase` — visible to `Task` but not auto-fired in the pipeline (mirrors how HCF ships `standards-enforcer` with its `phase` commented out).
+
+**To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example:
+- `/pb-hcf:wire --enable=pre-flight-check,gitnexus-reviewer,security-quorum` — minimal sane set
+- `/pb-hcf:wire --enable-all` — enroll **all 10** (full workflow-build-feature replacement)
+
+For each enrolled name:
 
 1. Read the plugin's source agent at `$CLAUDE_PLUGIN_ROOT/agents/<name>.md`.
-2. Write a project-local override at `.claude/agents/<name>.md` containing the plugin agent's body **plus** these frontmatter keys stamped in (alongside existing `name` / `description` / `model` / `tools`):
+2. Write a project-local override at `.claude/agents/<name>.md` containing the plugin agent's body **plus** the agent's default frontmatter from the table above stamped in (alongside existing `name` / `description` / `model` / `tools`):
    ```yaml
-   phase: post-implementation
-   order: <30 for gitnexus-reviewer, 70 for security-quorum>
-   mode: single
+   phase: <from table>
+   order: <from table>
+   mode: <from table>
    ```
-3. Idempotency: if `.claude/agents/<name>.md` already exists and already declares `phase: post-implementation`, skip silently. If it exists with a *different* `phase` value, leave it untouched and warn (user has expressed a deliberate choice).
+3. Idempotency: if `.claude/agents/<name>.md` already exists with the same `phase`, skip silently. If it exists with a *different* `phase` value, leave it untouched and warn (user has expressed a deliberate choice — e.g. they moved gitnexus-reviewer from `post-implementation` to `post-batch` for per-batch cadence).
 4. **DDEV read-only-mount note**: in some DDEV layouts `.claude/agents/` is mounted from a centralised source. If the directory is read-only, this step fails with a clear message instructing the user to either drop the mount, write the override file out-of-band, or wire from the host. Do NOT silently fall back to writing into `pipeline.md` — that file is gone in HCF v2.
 
 **To disable a previously-enrolled agent**: delete `.claude/agents/<name>.md` (or remove the `phase` key from its frontmatter). HCF's discovery routine reads frontmatter directly; no other state needs updating.
 
-`--enable-all` is also accepted as a convenience for `--enable=gitnexus-reviewer,security-quorum`.
+**Recommended enrollment sets:**
+
+| Scenario | Recommended `--enable` |
+|---|---|
+| Magento project, full custom workflow (replaces workflow-build-feature) | `--enable-all` |
+| Magento project, no auto-test-plan posting | `--enable-all` then `rm .claude/agents/post-plan-manual-test-plan.md` |
+| Non-Magento project, graphiti recall only | `--enable=pre-plan-graphiti-recall,graphiti-reviewer,pre-implementation-incident-recall` |
+| Security-focused only | `--enable=pre-flight-check,security-quorum,pre-commit-adversarial-pass` |
+| Minimal (just structural review) | `--enable=gitnexus-reviewer` |
 
 ### 5. Write `.claude/wires.json` registry
 

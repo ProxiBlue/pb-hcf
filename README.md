@@ -1,27 +1,129 @@
 # pb-hcf
 
-Context-wire bundle that gives HCF's autonomous workflow access to a code graph (GitNexus), a temporal knowledge graph (Graphiti), and a multi-agent security quorum. HCF source files are not modified — extensions land via project-local `.claude/<playbook>.md` files referenced from a fenced section in `.claude/CLAUDE.md`, plus opt-in drop-in agents that enroll into HCF v2.0.0+'s frontmatter-based hook pipeline.
+Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based hook pipeline. Ships 10 agents enrolled at 5 hook points (`pre-plan` / `post-plan` / `pre-implementation` / `post-implementation` / `pre-commit` / `post-commit`) that together cover everything the legacy `/proxiblue-skills:workflow-build-feature` wrapper did — pre-flight checks, branch warnings, Graphiti recall, manual test-plan posting, per-task incident recall, structural + historical + security review, adversarial final scan, verify-feature handoff, build-complete summary. After v0.4.0 the wrapper skill is obsolete: vanilla `/hcf:plan-create` + `/hcf:plan-orchestrate` execute the entire custom workflow because every step is a hook agent.
 
-> **HCF v2.0.0 compatibility (2026-06-26).** HCF dropped `.claude/pipeline.md`. Agents now declare hook membership via YAML frontmatter (`phase:` / `order:` / `mode:`) — see [HOOKS.md upstream](https://github.com/markshust/hcf#pipeline). `/pb-hcf:wire` enrolls bundled agents by stamping that frontmatter into `.claude/agents/<name>.md` overrides only when `--enable=<name>` is passed (default: off). If a legacy `.claude/pipeline.md` exists, `/pb-hcf:wire` refuses to run and points the user at `/hcf:project-update` to migrate first.
+> **HCF v2.0.0 compatibility (2026-06-26).** HCF dropped `.claude/pipeline.md`. Agents now declare hook membership via YAML frontmatter (`phase:` / `order:` / `mode:`) — see [HOOKS.md upstream](https://github.com/markshust/hcf#pipeline). `/pb-hcf:wire` enrolls bundled agents by stamping that frontmatter into `.claude/agents/<name>.md` overrides only when `--enable=<name>` is passed (default: off). `--enable-all` enrolls every bundled agent for the full workflow. If a legacy `.claude/pipeline.md` exists, `/pb-hcf:wire` refuses to run and points the user at `/hcf:project-update` to migrate first.
 
 ## What's in the plugin
 
-| | Type | What |
-|---|---|---|
-| `/pb-hcf:wire` | skill | Multi-playbook installer + opt-in HCF v2 hook enrollment. Discovers `templates/playbooks/*.md`, copies each to `.claude/<name>.md`, appends a single fenced section to `.claude/CLAUDE.md` pointing to all of them, writes `.claude/wires.json` registry, runs per-domain reachability probes. With `--enable=<name>[,<name>]`, copies the named bundled agent(s) to `.claude/agents/<name>.md` with `phase`/`order`/`mode` stamped. |
-| `gitnexus-reviewer` | agent | Diff-impact reviewer using the GitNexus code graph. Suggested enrollment: `phase: post-implementation`, `order: 30`, `mode: single`. Opt in via `/pb-hcf:wire --enable=gitnexus-reviewer`. Surfaces indirect callers grep misses (plugins, observers, DI preferences). |
-| `security-quorum` | agent (orchestrator) | Spawns the 3 security specialists in parallel, runs 2-round 2-of-3 consensus, synthesises a single PASS / FAIL / NEEDS-REVIEW verdict, writes one verdict episode to graphiti. ~$0.30-1.00 per run. Suggested enrollment: `phase: post-implementation`, `order: 70`, `mode: single`. Opt in via `/pb-hcf:wire --enable=security-quorum` or call ad-hoc via `Task`. |
-| `security-static-analyst` | agent (specialist, 1 of 3) | Reads code + traces data flows from sources to sinks. Cites file:line. Uses gitnexus impact + graphiti incident recall. Read-only. |
-| `security-adversarial-tester` | agent (specialist, 2 of 3) | Hostile-actor angle. Builds exploit payloads + attack chains. Online CVE lookups (NVD, GitHub Advisory DB, OSV). Native audit tools (composer/npm/pip-audit). Read-only — no actual exploitation. |
-| `security-defensive-auditor` | agent (specialist, 3 of 3) | Pass-then-verify discipline. Walks each framework-provided defense (Magento ACL, form_key, escapeHtml, CSP, crypto) and confirms it fires correctly, not just imports. Read-only. |
-| `templates/playbooks/gitnexus.md` | playbook | Domain rules + per-agent guidance for using GitNexus MCP tools. Authoritative on code-structure / caller / impact questions. |
-| `templates/playbooks/graphiti.md` | playbook | Domain rules for using Graphiti MCP. Authoritative on discussion / decision / intent / planned-but-not-built questions. |
-| `templates/playbooks/security.md` | playbook | OWASP / vulnerability assessment. Describes the 3-specialist quorum + 2-of-3 consensus rule + integration points. Authoritative on how to gate workflow on security verdict. |
-| `templates/playbooks/playwright.md` | playbook (future) | E2E test design and coverage. |
+### Skill
+
+| Name | What |
+|---|---|
+| `/pb-hcf:wire` | Multi-playbook installer + opt-in HCF v2 hook enrollment. Discovers `templates/playbooks/*.md`, copies each to `.claude/<name>.md`, appends a single fenced section to `.claude/CLAUDE.md`, writes `.claude/wires.json` registry, runs per-domain reachability probes. With `--enable=<name>[,<name>]` (or `--enable-all`), copies the named bundled agent(s) to `.claude/agents/<name>.md` with `phase`/`order`/`mode` stamped per the default-enrollment table. |
+
+### Enrollable agents (default-off; opt in via `--enable=<name>` or `--enable-all`)
+
+| Name | Hook | Order | Mode | What it does |
+|---|---|---|---|---|
+| `pre-flight-check` | `pre-plan` | 5 | single | Verifies onboarding artifacts (`.claude/CLAUDE.md`, `.claude/testing.md`, `.claude/wires.json`, pb-hcf fence). Loops `wires.json` probes. **Refuses to run on protected branches** (`live` / `uat` / `main` / `master`). Returns PASS / WARN / BLOCK — BLOCK aborts plan-create. |
+| `pre-plan-graphiti-recall` | `pre-plan` | 10 | single | Extracts topic keywords from the user's feature request, searches Graphiti (`search_memory_facts` + `search_nodes`) across `[project-id, fleet]` group_ids, returns Historical Context block with cited episode UUIDs — prior decisions, past incidents, vendor verdicts, planned-but-not-built. Guarantees foresight before HCF Phase 1 Discovery runs. |
+| `post-plan-manual-test-plan` | `post-plan` | 50 | single | After `devils-advocate` (HCF bundled, order 10), mines `_plan.md` + per-task Requirements, derives user stories, posts a phased GH ticket comment (via `gh-comment-hidden.sh` helper — caveman + minimised as off-topic per fleet rule), writes `.claude/test-plans/<ticket>.yml` per [SCHEMA.md](../../proxiblue-skills/skills/manual-test-plan/SCHEMA.md). |
+| `pre-implementation-incident-recall` | `pre-implementation` | 10 | single | For each `_task-NNN.md`, identifies the touched module/area, searches Graphiti for prior incidents, PREPENDS a `## Prior incidents in this area` section to the task file. tdd-workers read it during their normal task ingestion — institutional memory arrives in worker context automatically. |
+| `gitnexus-reviewer` | `post-implementation` | 30 | single | Diff-impact review via GitNexus code graph. Surfaces indirect callers grep misses (Magento plugins, observers wired in `events.xml`, DI preferences, layout overrides). Returns PASS / PUSHBACK with `mcp__gitnexus-mageos__impact` citations. |
+| `graphiti-reviewer` | `post-implementation` | 40 | single | Diff-vs-knowledge-graph review — historical counterpart of gitnexus-reviewer. Catches: change that conflicts with a prior decision, change that recreates a fixed incident pattern, new dependency that violates a vendor verdict, change overlapping planned-but-not-built work. Returns PASS / PUSHBACK with cited graphiti episode UUIDs. |
+| `security-quorum` | `post-implementation` | 70 | single | 3-agent 2-of-3 security consensus orchestrator. Spawns the 3 specialists in parallel, runs 2-round consensus, synthesises a single PASS / FAIL / NEEDS-REVIEW verdict, writes one verdict episode to graphiti. ~$0.30–1.00 per run. |
+| `pre-commit-adversarial-pass` | `pre-commit` | 10 | single | One last adversarial-tester pass on the staged diff AFTER the full test suite passes, BEFORE the commit lands. Looks for last-minute regressions, exploit patterns, attack chains, dependency CVEs in version bumps. Returns PASS or DEFER (advisory — does NOT block commit; surfaces to the build-summary). Read-only. |
+| `post-commit-verify-handoff` | `post-commit` | 10 | single | Prints the fresh-thread instruction that hands off to `/verify-feature <ticket>` (skill convention requires fresh thread so verify's TodoWrite doesn't fight the build's). Unmissable ASCII box. |
+| `post-commit-build-summary` | `post-commit` | 20 | single | Prints the BUILD COMPLETE summary aggregating every hook verdict + per-task review outcomes + deferred concerns + branch/commit info + `READY TO DEPLOY` (or `NOT READY TO DEPLOY` if any gate blocked). Final user-facing checkpoint before `/deploy-check`. |
+
+### Library agents (spawned BY security-quorum at runtime — not enrollable)
+
+| Name | Role within the trio |
+|---|---|
+| `security-static-analyst` | Reads code, traces data flows from sources to sinks. Cites file:line. Uses gitnexus impact + graphiti incident recall. |
+| `security-adversarial-tester` | Hostile-actor angle. Builds exploit payloads + attack chains. Online CVE lookups (NVD, GitHub Advisory DB, OSV). |
+| `security-defensive-auditor` | Pass-then-verify discipline. Walks each framework-provided defense (Magento ACL, form_key, escapeHtml, CSP, crypto) and confirms it fires correctly. |
+
+### Playbook templates (installed by `/pb-hcf:wire` to `.claude/<name>.md`)
+
+| Name | Authority scope |
+|---|---|
+| `templates/playbooks/gitnexus.md` | Code-structure / caller / impact questions (GitNexus MCP usage). |
+| `templates/playbooks/graphiti.md` | Discussion / decision / intent / planned-but-not-built questions (Graphiti MCP usage + 5-step search discipline). |
+| `templates/playbooks/security.md` | OWASP / vulnerability assessment + 3-specialist quorum 2-of-3 rule. |
+| `templates/playbooks/playwright.md` (future) | E2E test design and coverage. |
 
 ## Authority scope model
 
 Each playbook declares — at the top, as a fixed section — what it is the source of truth for and what it explicitly defers to siblings. This avoids contradictory guidance when multiple playbooks are wired together. When adding a new playbook, copy the existing `## Authority scope` skeleton and fill in the matching defer-to lines.
+
+## HCF v2 hook integration
+
+HCF v2.0.0 (released 2026-06-26) replaced the central `.claude/pipeline.md` registry with **agent-frontmatter enrollment**. Every agent file — plugin-shipped or project-local — opts into the pipeline by declaring three YAML keys:
+
+```yaml
+---
+name: gitnexus-reviewer
+description: "..."
+model: opus
+tools: Read, Glob, Grep, Bash, mcp__gitnexus-mageos__impact
+# --- hook enrollment ---
+phase: post-implementation   # one of 8 hooks (see table below)
+order: 30                    # lower runs first; default 100
+mode: single                 # "single" | "batch"; default "single"
+---
+```
+
+### The 8 hook points
+
+| Hook | Fires |
+|---|---|
+| `pre-plan` | Before `plan-create` Phase 1 (Discovery) begins |
+| `post-plan` | `plan-create` Phase 6, after dependency validation |
+| `pre-implementation` | `plan-orchestrate` after Step 2, before the first batch |
+| `pre-batch` | Each loop iteration, before workers spawn |
+| `post-batch` | Each loop iteration, after results collected |
+| `post-implementation` | `plan-orchestrate` Step 4a, when all tasks are complete |
+| `pre-commit` | Step 4a, after the full test suite passes, before the commit |
+| `post-commit` | Step 4a, after the commit, before the push/PR prompt |
+
+### Discovery routine HCF runs at each hook
+
+At each hook firing, HCF:
+1. Globs `.claude/agents/*.md` (project-local) and `$HCF_PLUGIN/agents/*.md` (and every other installed plugin's `agents/`, including pb-hcf's).
+2. Merges by `name` — **a local file overrides the plugin file entirely** (no field-level merge).
+3. Filters to agents whose `phase` equals the current hook.
+4. Sorts by `order` ascending, then by `name` (case-insensitive) for ties.
+5. Spawns each in order; `mode: single` runs one subagent for the whole plan, `mode: batch` splits files into batches of ~10 and runs parallel subagents.
+
+If the filtered set is empty → silent no-op (no narration, no work, no spawn). An empty hook is invisible.
+
+### How pb-hcf integrates
+
+pb-hcf does **not** modify HCF's source. Two integration surfaces:
+
+| Surface | What pb-hcf writes | When |
+|---|---|---|
+| `.claude/<playbook>.md` (playbook files) | Domain rule docs (gitnexus, graphiti, security, …) referenced from a fenced section in `.claude/CLAUDE.md` | Every `/pb-hcf:wire` run (no opt-in needed; playbooks are passive context) |
+| `.claude/agents/<name>.md` (agent overrides) | Plugin agent body **with** `phase` / `order` / `mode` frontmatter stamped on top — wins the merge against `$pb-hcf-plugin/agents/<name>.md` | Only when `--enable=<name>[,<name>]` (or `--enable-all`) is passed to `/pb-hcf:wire` |
+
+Result: bundled agents (`gitnexus-reviewer`, `security-quorum`, the 3 security specialists) live in the plugin without a `phase`. They are *visible* to `Task` but *dormant* in the pipeline. Enrollment is one explicit gesture per project.
+
+### Default enrollment knobs (stamped when `--enable=<name>` is passed)
+
+| Agent | `phase` | `order` | `mode` | Rationale |
+|---|---|---|---|---|
+| `pre-flight-check` | `pre-plan` | `5` | `single` | Fail fast — verify state + branch BEFORE any planning work begins |
+| `pre-plan-graphiti-recall` | `pre-plan` | `10` | `single` | After pre-flight clears; runs once before Phase 1 Discovery so historical context lands in plan-create's window |
+| (HCF) `devils-advocate` | `post-plan` | `10` | `single` | HCF bundled — runs first at post-plan to review the plan |
+| `post-plan-manual-test-plan` | `post-plan` | `50` | `single` | After devils-advocate finishes (gives the reviewed plan to mine); higher order = runs later |
+| `pre-implementation-incident-recall` | `pre-implementation` | `10` | `single` | Once before first batch — pre-seeds every task file with relevant prior incidents |
+| `gitnexus-reviewer` | `post-implementation` | `30` | `single` | Structural-impact review FIRST — before style fixes and security audit |
+| `graphiti-reviewer` | `post-implementation` | `40` | `single` | Historical/decisional review SECOND — symmetric to gitnexus on the knowledge axis |
+| (HCF) `standards-enforcer` | `post-implementation` | `50` | `batch` | HCF bundled — code-standards fixes; opt-in (HCF ships with phase commented) |
+| `security-quorum` | `post-implementation` | `70` | `single` | Security audit LAST at post-implementation, on the final diff including standards-enforcer fixes |
+| `pre-commit-adversarial-pass` | `pre-commit` | `10` | `single` | One last adversarial scan after tests pass, before commit. Read-only. Returns PASS or DEFER. |
+| `post-commit-verify-handoff` | `post-commit` | `10` | `single` | Prints verify-feature handoff first (the loud unmissable block) |
+| `post-commit-build-summary` | `post-commit` | `20` | `single` | Then prints the aggregated BUILD COMPLETE summary |
+
+To pick a different hook for an agent (e.g. per-batch cadence instead of per-plan for gitnexus-reviewer), edit the project's `.claude/agents/<name>.md` after wire — change `phase` to `post-batch`. The wire respects local edits on re-run (won't clobber a `phase` you've changed; warns instead).
+
+### Why pipeline.md is dead in v2
+
+HCF v2 actively gates `plan-create` and `plan-orchestrate` while `.claude/pipeline.md` exists (via SessionStart notice + PreToolUse + UserPromptExpansion hooks under HCF). `/hcf:project-update` is the migrator — it parses any active entries in pipeline.md, copies the relevant plugin agents to `.claude/agents/`, stamps the right frontmatter, and removes the file. Once removed, the gates open.
+
+`/pb-hcf:wire` mirrors that gate: it refuses to run while `pipeline.md` exists, with a message pointing the user at `/hcf:project-update` first. This prevents accidental coexistence (and prevents the wire from ever writing the file that would brick the planning workflow).
 
 ## How HCF flows change with pb-hcf wires
 
@@ -60,7 +162,7 @@ User: "build feature X"
 
 Wired by default: `standards-enforcer` in post-implementation. That's it. No graphiti consultation, no gitnexus consultation, no security audit, no prior-decision recall.
 
-### Adjusted process (pb-hcf wired)
+### Adjusted process (pb-hcf v0.4.0 wired — 100% via HCF v2 hooks)
 
 ```
 User runs /proxiblue-skills:workflow-onboard-project   ◄── ONE TIME per project
@@ -68,75 +170,98 @@ User runs /proxiblue-skills:workflow-onboard-project   ◄── ONE TIME per pr
   ├─ Install plugins: pb-hcf, pb-hcf-playwright-tdd, proxiblue-skills, hyva-ai-tools
   ├─ /hcf:project-setup → .claude/CLAUDE.md
   ├─ /pb-hcf-playwright-tdd:setup → .claude/testing.md
-  └─ /pb-hcf:wire --enable=gitnexus-reviewer,security-quorum   ◄── pb-hcf
-        ├─ Drops .claude/{gitnexus,graphiti,security}.md
-        ├─ Single fenced section in .claude/CLAUDE.md pointing to all of them
+  └─ /pb-hcf:wire --enable-all   ◄── pb-hcf v0.4.0: enrolls ALL 10 bundled agents
+        ├─ Drops .claude/{gitnexus,graphiti,security}.md (playbooks)
+        ├─ Single fenced section in .claude/CLAUDE.md pointing to all playbooks
         ├─ Runs reachability probes (gitnexus:4747, mcp__graphiti__get_status)
-        ├─ Enrolls each --enable'd bundled agent into HCF's hook pipeline:
+        ├─ For each of 10 bundled agents:
         │     copies $PLUGIN/agents/<name>.md → .claude/agents/<name>.md
-        │     and stamps phase: post-implementation / order / mode in frontmatter
+        │     stamps phase / order / mode in frontmatter
         └─ Writes .claude/wires.json registry (playbooks[] + enrollments[])
 
 
-User runs /proxiblue-skills:workflow-build-feature <ticket>
+User runs /hcf:plan-create   ◄── VANILLA — no wrapper skill needed
   │
-  ├─ PRE-FLIGHT   ◄── pb-hcf: registry-driven, scales to N playbooks
-  │   └─ Loop .claude/wires.json — probe each entry; STOP if any fail
+  ├─ pre-plan hook (HCF v2 — frontmatter discovery):
+  │   ├─ pb-hcf: pre-flight-check (order 5)
+  │   │   ├─ Verifies onboarding artifacts present
+  │   │   ├─ Loops .claude/wires.json — probes every entry
+  │   │   ├─ Checks git branch — BLOCKs if on live/uat/main/master
+  │   │   └─ Returns PASS / WARN / BLOCK (BLOCK aborts plan-create)
+  │   │
+  │   └─ pb-hcf: pre-plan-graphiti-recall (order 10)
+  │       ├─ Extracts topic keywords from user's feature request
+  │       ├─ Searches graphiti [project, fleet] — both indexes, 4-synonym discipline
+  │       └─ Returns Historical Context block (cited episode UUIDs)
   │
-  ├─ Create feature branch from live
+  ├─ Phase 1: Discovery (vanilla HCF)
+  ├─ Phase 2: Grounded Clarification (vanilla HCF — asks user)
+  ├─ Phase 3-5: Define plan, break into tasks, validate deps (vanilla HCF)
   │
-  ├─ /hcf:plan-create
-  │      ├─ Phase 1: Discovery   ◄── now playbook-aware
-  │      │   ├─ Codebase glob (vanilla HCF)
-  │      │   ├─ pb-hcf: graphiti search → "Discussed but not yet built",
-  │      │   │         prior decisions, past incidents, vendor / client constraints
-  │      │   └─ pb-hcf: gitnexus impact for any class / method mentioned
-  │      │
-  │      ├─ Phase 3: Define plan   ◄── plan carries Historical Context preamble
-  │      │
-  │      ├─ Phase 6: devils-advocate   ◄── multi-playbook critique
-  │      │   ├─ gitnexus: indirect callers, plugin/observer/DI wiring
-  │      │   ├─ graphiti: adjacent planned work, conflicts, prior incidents
-  │      │   └─ security: scope-relevance flag if auth/payments/secrets touched
-  │      │
-  │      └─ SubagentStop hook fires → captures findings to graphiti
+  ├─ post-plan hook (HCF v2):
+  │   ├─ HCF: devils-advocate (order 10) — auto-consults wired playbooks via CLAUDE.md
+  │   └─ pb-hcf: post-plan-manual-test-plan (order 50)
+  │       ├─ Mines _plan.md Success Criteria + per-task Requirements
+  │       ├─ Derives user stories per SCHEMA.md
+  │       ├─ Writes .claude/test-plans/<ticket>.yml
+  │       └─ Posts phased GH ticket comment (caveman + minimised off-topic)
   │
-  ├─ [USER REVIEW] Plan + devils-advocate findings + Historical Context
+  ├─ Phase 7: User reviews plan
+  └─ Phase 8: Finalize
+
+
+User runs /hcf:plan-orchestrate <plan>   ◄── VANILLA — no wrapper skill needed
   │
-  ├─ /manual-test-plan → posts to GH ticket
-  ├─ [USER REVIEW] ticket comment
+  ├─ pre-implementation hook (HCF v2):
+  │   └─ pb-hcf: pre-implementation-incident-recall (order 10)
+  │       ├─ Per task: extract touched module/area from _task-NNN.md
+  │       ├─ Search graphiti [project, fleet] for prior incidents
+  │       └─ PREPEND "## Prior incidents in this area" to each _task-NNN.md
+  │           → tdd-workers read it during normal task ingestion
   │
-  ├─ /hcf:plan-orchestrate <plan>   ◄── HCF NATIVE
-  │      ├─ Spawn parallel tdd-workers per task:
-  │      │     ├─ pb-hcf: graphiti search for prior incidents in same area
-  │      │     ├─ pb-hcf: gitnexus find_symbol + impact before modifying classes
-  │      │     ├─ RED → GREEN → REFACTOR (HCF native)
-  │      │     ├─ Targeted tests (per-project testing.md scoping)
-  │      │     └─ SubagentStop hook → captures non-obvious blockers
-  │      │
-  │      └─ Post-implementation pipeline (HCF v2 frontmatter-enrolled agents):
-  │             ├─ standards-enforcer (vanilla HCF — opt-in via frontmatter)
-  │             ├─ pb-hcf: gitnexus-reviewer (order 30) — impact-graph review of whole diff
-  │             ├─ pb-hcf: security-quorum (order 70)   ◄── 2-of-3 consensus gate
-  │             │       ├─ Round 1 parallel spawn of 3 specialists:
-  │             │       │   ├─ security-static-analyst (data-flow + file:line)
-  │             │       │   ├─ security-adversarial-tester (payloads + CVE lookup)
-  │             │       │   └─ security-defensive-auditor (pass-then-verify controls)
-  │             │       ├─ Round 2 parallel re-spawn with sibling votes (revise)
-  │             │       ├─ Verdict synthesis (2-of-3 rule, dissents preserved)
-  │             │       └─ Write ONE verdict episode to graphiti
-  │             │
-  │             └─ Full test suite ONCE
-  │             ▼
-  │             Single final commit
+  ├─ Implementation loop (per batch):
+  │   ├─ pre-batch hook (vanilla HCF — empty unless project enrolls more)
+  │   ├─ Spawn parallel tdd-workers (HCF native)
+  │   │     ├─ Workers see "Prior incidents" section in task file
+  │   │     ├─ RED → GREEN → REFACTOR (HCF native)
+  │   │     └─ Targeted tests per .claude/testing.md scoping
+  │   └─ post-batch hook (vanilla HCF — empty unless project enrolls more)
   │
-  ├─ [USER ACTION] Open fresh thread → /verify-feature <ticket>
-  ├─ [USER REVIEW] verify-feature outcome
+  ├─ post-implementation hook (HCF v2 — runs ONCE at plan-end):
+  │   ├─ pb-hcf: gitnexus-reviewer (order 30)
+  │   │   └─ Structural impact of whole diff via GitNexus code graph
+  │   ├─ pb-hcf: graphiti-reviewer (order 40)
+  │   │   └─ Historical/decisional impact of whole diff via Graphiti knowledge graph
+  │   ├─ HCF: standards-enforcer (order 50 — opt-in via frontmatter)
+  │   └─ pb-hcf: security-quorum (order 70)
+  │       ├─ Round 1 parallel spawn of 3 specialists:
+  │       │   ├─ security-static-analyst (data-flow + file:line)
+  │       │   ├─ security-adversarial-tester (payloads + CVE lookup)
+  │       │   └─ security-defensive-auditor (pass-then-verify controls)
+  │       ├─ Round 2 parallel re-spawn with sibling votes (revise)
+  │       ├─ Verdict synthesis (2-of-3 rule, dissents preserved)
+  │       └─ Write ONE verdict episode to graphiti
   │
-  ├─ Quality gates (optional):
-  │   └─ /workflow-security-audit (gitnexus-aware single-agent — second pass)
+  ├─ Full test suite runs ONCE (HCF native invariant — must pass before commit)
   │
-  └─ Build-complete summary
+  ├─ pre-commit hook (HCF v2):
+  │   └─ pb-hcf: pre-commit-adversarial-pass (order 10)
+  │       ├─ One adversarial sweep of staged diff (git diff --cached)
+  │       ├─ Three angles: worst input / indirect-call-chain / CVE-in-bumped-dep
+  │       └─ Returns PASS or DEFER (advisory — never blocks commit)
+  │
+  ├─ Single final commit (HCF native)
+  │
+  └─ post-commit hook (HCF v2):
+      ├─ pb-hcf: post-commit-verify-handoff (order 10)
+      │   └─ Prints unmissable ASCII box: "open fresh thread, run /verify-feature <NNN>"
+      └─ pb-hcf: post-commit-build-summary (order 20)
+          └─ Aggregates plan / hook verdicts / per-task outcomes / branch state
+              Prints BUILD COMPLETE summary + READY/NOT-READY-TO-DEPLOY footer
+
+
+[USER ACTION — fresh thread] /verify-feature <ticket>
+[USER ACTION] /deploy-check <target> when satisfied
 
 
 ALWAYS-ON (per session, via pb-graphiti hooks):
@@ -146,6 +271,8 @@ ALWAYS-ON (per session, via pb-graphiti hooks):
   ├─ SessionEnd hook     — session terminate → graphiti episode (8-cap)
   └─ PreCompact hook     — rarely fires on 1M context; still wired for smaller models
 ```
+
+**Note the absence of `/proxiblue-skills:workflow-build-feature` in the flow.** Every step that skill used to orchestrate now lives in an HCF hook. Running plain `/hcf:plan-create` + `/hcf:plan-orchestrate` triggers the entire custom workflow because hook discovery is automatic — the user can never forget to run the wrapper. The skill becomes deletable once every project is wired with `--enable-all` (or whichever enrollment subset they prefer).
 
 ### Side-by-side per-phase
 
@@ -193,10 +320,11 @@ These are real trade-offs the design accepts. Revisit when they bite in practice
 
 ## What pb-hcf is NOT
 
-- **Not a wrapper for HCF flows.** No `plan-orchestrate` substitution. The security + reviewer agents enroll into HCF's native v2 hook pipeline via agent frontmatter (opt-in via `--enable`).
+- **Not a wrapper for HCF flows.** No `plan-create` / `plan-orchestrate` substitution. Every custom step lives in an HCF v2 hook agent that HCF discovers via frontmatter — vanilla HCF commands trigger the full workflow.
 - **Not a clone of HCF.** All HCF source files (agents, skills) stay upstream-clean.
 - **Not a marketplace.** Lives as a single plugin; install via the standard plugin marketplace flow.
 - **Does not touch `.claude/pipeline.md`.** That file is legacy in HCF v2.0.0+ — `/hcf:project-update` is the only thing allowed to migrate or remove it. `/pb-hcf:wire` refuses to run while it exists.
+- **`/proxiblue-skills:workflow-build-feature` is obsolete after v0.4.0** for projects enrolled with `--enable-all`. The skill stays in the proxiblue-skills marketplace for transitional use but every step it orchestrated has a hook-enrolled equivalent. New projects should skip the wrapper entirely.
 
 ## Adding a new playbook
 
@@ -207,12 +335,90 @@ These are real trade-offs the design accepts. Revisit when they bite in practice
 
 No other plugin needs to change. Wire registry auto-discovers; CLAUDE.md fence auto-rewrites with a pointer for the new playbook; pre-flight checks pick it up via `wires.json`.
 
+## Upgrading existing projects (from pb-hcf v0.2.x → v0.3.0)
+
+Existing pb-hcf-wired projects fall into three states. Pick the matching recipe.
+
+**Discover the state for any project (run from project root):**
+
+```bash
+[ -f .claude/pipeline.md ]   && echo "legacy pipeline.md PRESENT"   || echo "no pipeline.md"
+[ -f .claude/wires.json ]    && echo "pb-hcf wired"                 || echo "not wired"
+grep -l "pb-hcf:start"     .claude/CLAUDE.md 2>/dev/null && echo "pb-hcf fence present"
+grep -l "pb-gitnexus:start" .claude/CLAUDE.md 2>/dev/null && echo "legacy pb-gitnexus fence (will be auto-migrated)"
+ls .claude/agents/*.md 2>/dev/null && echo "project-local agents exist"
+```
+
+### State A — legacy `pipeline.md` present (typical for older HCF+pb-hcf projects)
+
+1. **Update HCF to v2.0.0+ first** (in container or wherever the project's Claude Code runs):
+   ```
+   /plugin update hcf@hcf
+   ```
+2. **Update pb-hcf to v0.3.0+**:
+   ```
+   /plugin update pb-hcf@pb-hcf
+   ```
+3. **Migrate pipeline.md** — `/hcf:project-update` parses pipeline.md, copies any actively-enrolled agents (uncommented `- <name>` entries) into `.claude/agents/<name>.md` with `phase` stamped, and deletes the file:
+   ```
+   /hcf:project-update
+   ```
+   This already handles pb-hcf's `gitnexus-reviewer` / `security-quorum` correctly via HCF's discovery routine — they get copied into `.claude/agents/` if they were uncommented in pipeline.md.
+4. **Re-run wire** to refresh `wires.json` (now includes `enrollments[]`):
+   ```
+   /pb-hcf:wire
+   ```
+5. **Verify**:
+   ```bash
+   ls .claude/pipeline.md 2>&1   # should say no such file
+   cat .claude/wires.json | jq '.playbooks, .enrollments'
+   ls .claude/agents/            # any frontmatter-stamped overrides land here
+   ```
+
+### State B — already-on-frontmatter project that was never pb-hcf-wired
+
+(Project ran `/hcf:project-update` already, has no pipeline.md, but no `.claude/wires.json`.)
+
+```
+/plugin update pb-hcf@pb-hcf
+/pb-hcf:wire --enable=gitnexus-reviewer        # or --enable-all for Magento + security-sensitive
+```
+
+### State C — fresh project (no HCF, no pb-hcf)
+
+```
+/hcf:project-setup
+/pb-hcf:wire --enable=gitnexus-reviewer        # add ,security-quorum or use --enable-all if needed
+```
+
+### Verifying what HCF will actually run
+
+After any state's recipe, confirm HCF's discovery routine sees the right agents:
+
+```bash
+# What's enrolled at post-implementation?
+for f in .claude/agents/*.md $HCF_PLUGIN_ROOT/agents/*.md $PB_HCF_PLUGIN_ROOT/agents/*.md; do
+  [ -f "$f" ] || continue
+  phase=$(awk '/^---$/{f=!f;next}f&&/^phase:/{print $2}' "$f")
+  [ "$phase" = "post-implementation" ] && echo "$f  →  $phase"
+done
+```
+
+Or trust the printed resolved-order line HCF logs at each hook firing.
+
+## What the wire does NOT do during upgrade
+
+- **Never edits `pipeline.md`.** Migration is HCF's job (`/hcf:project-update`). If pipeline.md is present, wire halts. No exceptions.
+- **Never silently enrolls agents.** Even on an upgrade re-run, agents land in `.claude/agents/` only via `--enable=<name>`. The exception is `/hcf:project-update`, which re-creates enrollments that were active in pipeline.md (so behaviour is preserved across the migration).
+- **Never overwrites an existing `.claude/agents/<name>.md` with a different `phase`.** If you've intentionally moved `gitnexus-reviewer` to `post-batch`, re-running `--enable=gitnexus-reviewer` warns and leaves your edit alone.
+
 ## Status
 
 | Version | What landed |
 |---|---|
 | v0.1.0 | gitnexus-reviewer agent + gitnexus.md playbook + graphiti.md playbook + multi-playbook `wire` skill. |
 | v0.2.0 | Security quorum: `security-quorum` orchestrator + 3 specialist agents + `security.md` playbook. 2-of-3 consensus, ~$0.30-1.00 per run. |
-| v0.3.0 | **BREAKING — aligned with HCF v2.0.0.** Wire no longer writes `.claude/pipeline.md` (that file blocks HCF planning in v2). Replaced with opt-in HCF v2 hook enrollment via agent frontmatter: `/pb-hcf:wire --enable=<name>[,<name>]` (or `--enable-all`) copies the named bundled agent to `.claude/agents/<name>.md` with `phase: post-implementation` + `order` + `mode` stamped. Wire halts if a legacy `pipeline.md` is present and tells the user to run `/hcf:project-update` first. `wires.json` gains `enrollments[]` for downstream pre-flight visibility. Graphiti playbook adds search-discipline guidance. |
+| v0.3.0 | **BREAKING — aligned with HCF v2.0.0.** Wire no longer writes `.claude/pipeline.md` (that file blocks HCF planning in v2). Replaced with opt-in HCF v2 hook enrollment via agent frontmatter: `/pb-hcf:wire --enable=<name>[,<name>]` (or `--enable-all`) copies the named bundled agent to `.claude/agents/<name>.md` with `phase: post-implementation` + `order` + `mode` stamped. Wire halts if a legacy `pipeline.md` is present. `wires.json` gains `enrollments[]`. Graphiti playbook adds search-discipline guidance. |
+| v0.4.0 | **100% HCF v2 hook migration — `/proxiblue-skills:workflow-build-feature` made obsolete.** Ships **8 new agents** covering every step the wrapper used to orchestrate, each enrolled at the appropriate HCF v2 hook: `pre-flight-check` (pre-plan, order 5 — verifies onboarding + warns on protected branches `live`/`uat`/`main`/`master`), `pre-plan-graphiti-recall` (pre-plan, order 10 — historical context before Discovery), `post-plan-manual-test-plan` (post-plan, order 50 — derives + posts manual test plan + writes YAML), `pre-implementation-incident-recall` (pre-implementation, order 10 — per-task graphiti prior-incident lookup, prepends to task files), `graphiti-reviewer` (post-implementation, order 40 — historical/decisional diff review symmetric to gitnexus-reviewer), `pre-commit-adversarial-pass` (pre-commit, order 10 — last-chance adversarial sweep on staged diff, advisory only), `post-commit-verify-handoff` (post-commit, order 10 — unmissable fresh-thread handoff to /verify-feature), `post-commit-build-summary` (post-commit, order 20 — aggregated BUILD COMPLETE with READY/NOT-READY-TO-DEPLOY). Wire skill agent table expanded to 10 enrollable agents. `--enable-all` enrolls every bundled agent. `gitnexus-reviewer` body updated for HCF v2 post-implementation protocol (no more wrapper-era PLAN_NAME/TASK_NUMBER inputs). |
 
 Next planned playbook: `playwright.md` — folds in E2E test design and coverage guidance.

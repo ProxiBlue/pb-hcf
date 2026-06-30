@@ -8,8 +8,8 @@
     {
       "name": "pb-hcf",
       "source": "./",
-      "description": "Consolidated HCF flow customisation for the ProxiBlue fleet — multi-playbook wire installer, gitnexus-reviewer + security-quorum agents, opt-in HCF v2 hook enrollment via agent frontmatter. Replaces pb-gitnexus.",
-      "version": "0.3.0",
+      "description": "Full custom-workflow integration for HCF v2.0.0+ — 10 enrollable agents across 5 hook points, replaces /proxiblue-skills:workflow-build-feature, multi-playbook wire installer, opt-in via /pb-hcf:wire --enable=<name> or --enable-all.",
+      "version": "0.4.0",
       "license": "Apache-2.0",
       "keywords": [
         "hcf",

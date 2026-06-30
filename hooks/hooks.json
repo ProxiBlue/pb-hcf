@@ -1,0 +1,17 @@
+{
+  "description": "pb-hcf hooks. SessionStart auto-runs scripts/discover-hooks.sh and injects the resolved per-hook agent enrollment table into Claude's session context. This prevents the LLM-improvises-bash failure mode where HCF's plan-create / plan-orchestrate report empty hooks because the improvised glob enumeration crashed silently (PPS 2026-06-30: invalid `for f in $LOC/*.md 2>/dev/null` syntax aborted enumeration at line 35; partial output was consumed as ground truth). See feedback_hcf_discovery_non_deterministic.md for the full diagnosis.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/discover-hooks.sh",
+            "args": []
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -341,6 +341,45 @@ These are real trade-offs the design accepts. Revisit when they bite in practice
 
 No other plugin needs to change. Wire registry auto-discovers; CLAUDE.md fence auto-rewrites with a pointer for the new playbook; pre-flight checks pick it up via `wires.json`.
 
+## Troubleshooting — "hook fires empty even though I enrolled agents"
+
+**Symptom:** `/hcf:plan-create` or `/hcf:plan-orchestrate` reports `Phase N (<hook>) — EMPTY hook → fast-path skip` for a hook where you stocked agents via `/pb-hcf:wire --enable` (and the files visibly exist in your target dir).
+
+**Cause:** HCF v2's hook discovery routine is described in HOOKS.md as instructions for the LLM, not as code. The in-session Claude implements discovery by improvising a bash enumeration script on the fly. That improvised script can have syntax bugs. Confirmed in PPS test 2026-06-30: invalid `for f in $LOC/*.md 2>/dev/null` (redirect placement wrong) crashed enumeration at line 35. Partial output from earlier sections was consumed as ground truth; the project-local `.claude/agents/` glob never ran; Claude concluded "no agents at any hook" → empty fast-paths everywhere.
+
+**Diagnose deterministically:**
+
+```bash
+# Run from project root, in container OR host:
+"$CLAUDE_PLUGIN_ROOT/scripts/discover-hooks.sh"
+
+# Or pin the target explicitly:
+"$CLAUDE_PLUGIN_ROOT/scripts/discover-hooks.sh" --target=~/claude-code-magento-agents
+
+# Or filter to one hook:
+"$CLAUDE_PLUGIN_ROOT/scripts/discover-hooks.sh" --hook=pre-plan
+```
+
+The script enumerates your `.claude/agents/` (auto-detected from `.ddev/docker-compose*.yaml` mount source, with project-local fallback), awk-parses `phase` / `order` / `mode` from each .md's YAML frontmatter, and prints the resolved-order table HCF *should* produce. If this script lists your agents and HCF's plan-create still reports empty — that's the bash-crash failure mode.
+
+**Fix at use-time (workaround):**
+
+pb-hcf v0.4.2+ ships a SessionStart hook (`hooks/discover-hooks.sh`) that auto-runs the discovery on session start and injects the resolved table into Claude's context window. With this in place, HCF's plan-create reads the discovery from context instead of improvising bash — failure mode bypassed entirely. **Verify the hook fired** by checking your session's initial system context for "pb-hcf hook enrollment discovery".
+
+If the SessionStart hook didn't fire (e.g. older pb-hcf version, plugin not loaded yet at session start), force discovery manually in the plan-create prompt:
+
+```
+Before Phase 1 Discovery, execute the HOOKS.md Discovery Routine for the `pre-plan` hook LITERALLY:
+1. Run: `ls .claude/agents/*.md` from project root — confirm file list.
+2. For each, awk-parse YAML frontmatter, extract `phase:` value.
+3. Filter to agents whose phase equals "<HOOK>".
+4. Print the resolved-order line BEFORE spawning.
+5. Spawn each via Task in order.
+If step 3 yields ZERO, STOP and paste the frontmatter of the missing files.
+```
+
+**Upstream:** filed against [markshust/hcf](https://github.com/markshust/hcf) proposing HCF ship its own deterministic `hooks/discover-hooks.sh` so plan-create can call it instead of relying on LLM-improvised bash. Until that's merged, the pb-hcf SessionStart hook is the workaround that keeps the failure mode from hitting HCF's downstream users.
+
 ## Upgrading existing projects (from pb-hcf v0.2.x → v0.3.0)
 
 Existing pb-hcf-wired projects fall into three states. Pick the matching recipe.
@@ -445,5 +484,6 @@ Or trust the printed resolved-order line HCF logs at each hook firing.
 | v0.3.0 | **BREAKING — aligned with HCF v2.0.0.** Wire no longer writes `.claude/pipeline.md` (that file blocks HCF planning in v2). Replaced with opt-in HCF v2 hook enrollment via agent frontmatter: `/pb-hcf:wire --enable=<name>[,<name>]` (or `--enable-all`) copies the named bundled agent to `.claude/agents/<name>.md` with `phase: post-implementation` + `order` + `mode` stamped. Wire halts if a legacy `pipeline.md` is present. `wires.json` gains `enrollments[]`. Graphiti playbook adds search-discipline guidance. |
 | v0.4.0 | **100% HCF v2 hook migration — `/proxiblue-skills:workflow-build-feature` made obsolete.** Ships **8 new agents** covering every step the wrapper used to orchestrate, each enrolled at the appropriate HCF v2 hook: `pre-flight-check` (pre-plan, order 5 — verifies onboarding + warns on protected branches `live`/`uat`/`main`/`master`), `pre-plan-graphiti-recall` (pre-plan, order 10 — historical context before Discovery), `post-plan-manual-test-plan` (post-plan, order 50 — derives + posts manual test plan + writes YAML), `pre-implementation-incident-recall` (pre-implementation, order 10 — per-task graphiti prior-incident lookup, prepends to task files), `graphiti-reviewer` (post-implementation, order 40 — historical/decisional diff review symmetric to gitnexus-reviewer), `pre-commit-adversarial-pass` (pre-commit, order 10 — last-chance adversarial sweep on staged diff, advisory only), `post-commit-verify-handoff` (post-commit, order 10 — unmissable fresh-thread handoff to /verify-feature), `post-commit-build-summary` (post-commit, order 20 — aggregated BUILD COMPLETE with READY/NOT-READY-TO-DEPLOY). Wire skill agent table expanded to 10 enrollable agents. `--enable-all` enrolls every bundled agent. `gitnexus-reviewer` body updated for HCF v2 post-implementation protocol (no more wrapper-era PLAN_NAME/TASK_NUMBER inputs). |
 | v0.4.1 | **RO-mount-respecting enrollment target.** Wire's `--enable` no longer assumes project-local `.claude/agents/` is writable — for fleet-mounted projects (ProxiBlue ddev pattern with `~/claude-code-magento-agents:/var/www/html/.claude/agents:ro`) it would silently fail because the mount source is the actual write target. New target-resolution: `--target=<path>` flag → auto-detect from `.ddev/docker-compose*.yaml` mount source → project-local fallback. Wire writes from host to the resolved target (respecting RO-mount gatekeeping intent — container view stays read-only, only host can change enrollments). Idempotency tightened: re-enrolling an agent already present with the expected `phase` is a silent no-op (no diff prompt). Library agents (3 security specialists) ride along when `security-quorum` is enrolled. `wires.json` gains `enrollmentTarget` + `enrollmentTargetSource` fields. |
+| v0.4.2 | **Deterministic hook discovery + SessionStart auto-inject.** Fixes the "hook fires empty even though agents are stocked" failure mode (confirmed PPS 2026-06-30: HCF's plan-create asks Claude to improvise a bash glob; the improvised script had invalid `for f in $LOC/*.md 2>/dev/null` redirect placement, crashed at line 35, partial output read as ground truth → all hooks fired empty). Ships `scripts/discover-hooks.sh` (deterministic awk-based enumeration with `--target` / `--hook` / `--json` flags, auto-detects mount source from .ddev/docker-compose) + `hooks/discover-hooks.sh` (SessionStart hook that auto-runs the script and injects the resolved per-hook agent table into Claude's session context so plan-create never needs to improvise discovery). Bypasses the LLM-improvised-bash failure mode entirely. README troubleshooting section added. Upstream issue filed against markshust/hcf proposing HCF ship its own deterministic discover-hooks.sh so the workaround can be retired. |
 
 Next planned playbook: `playwright.md` — folds in E2E test design and coverage guidance.

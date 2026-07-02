@@ -1,7 +1,7 @@
 ---
 name: pre-plan-graphiti-recall
 description: "pb-hcf pre-plan agent — extracts topic keywords from the user's feature request, searches Graphiti for prior decisions / past incidents / planned-but-not-built work in the same area, and returns a Historical Context block (cited by episode UUID + summary). Runs BEFORE plan-create Phase 1 Discovery so foresight is guaranteed, not aspirational. Replaces the 'maybe-remembers-to-search-graphiti' behaviour of an unenrolled Phase 1."
-model: opus
+model: sonnet
 tools: mcp__graphiti__get_status, mcp__graphiti__search_nodes, mcp__graphiti__search_memory_facts, mcp__graphiti__get_episodes, Bash
 ---
 

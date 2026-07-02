@@ -1,7 +1,7 @@
 ---
 name: pre-implementation-incident-recall
 description: "pb-hcf pre-implementation agent — for each task in the plan, identifies the touched module/area from task content, searches Graphiti for prior incidents/decisions in that area, and PREPENDS a `## Prior incidents in this area` section to each `_task-NNN.md` file. tdd-workers read those task files as part of their job, so the historical context arrives in their context automatically. Closes the 'workers consult institutional memory' gap that was previously documented in playbooks but not guaranteed."
-model: opus
+model: sonnet
 tools: Read, Glob, Edit, Bash, mcp__graphiti__get_status, mcp__graphiti__search_nodes, mcp__graphiti__search_memory_facts
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: post-plan-manual-test-plan
 description: "pb-hcf post-plan agent — after devils-advocate finishes, mines _plan.md Success Criteria + per-task Requirements, derives user-story manual test plan, posts a phased comment to the GitHub ticket (minimised as off-topic per fleet rule), and writes a Playwright-keyable companion YAML at .claude/test-plans/<ticket>.yml. Replaces the manual /manual-test-plan invocation from /proxiblue-skills:workflow-build-feature step 6. Skill stays available for ad-hoc re-runs."
-model: opus
+model: sonnet
 tools: Read, Glob, Bash, Write
 ---
 

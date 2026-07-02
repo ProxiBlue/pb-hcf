@@ -1,7 +1,7 @@
 ---
 name: post-commit-build-summary
 description: "pb-hcf post-commit agent — prints the BUILD COMPLETE summary aggregating plan path, devils-advocate output, per-task review outcomes, post-implementation hook verdicts (gitnexus-reviewer, graphiti-reviewer, security-quorum), pre-commit adversarial DEFER notes if any, test results, commit info, and 'ready to deploy' guidance. Replaces step 13 of /proxiblue-skills:workflow-build-feature."
-model: opus
+model: sonnet
 tools: Read, Glob, Bash
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: post-commit-verify-handoff
 description: "pb-hcf post-commit agent — prints the fresh-thread instruction that hands the user off to /verify-feature in a new Claude Code thread. Required because verify-feature's TodoWrite list must not interfere with the build thread's todos (skill convention). This agent does NOT launch verify-feature itself; it just makes the handoff prompt explicit and unmissable."
-model: opus
+model: haiku
 tools: Read, Bash
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: pre-flight-check
 description: "pb-hcf pre-plan gate — verifies onboarding artifacts (.claude/CLAUDE.md, .claude/testing.md, .claude/wires.json, pb-hcf fence in CLAUDE.md), loops .claude/wires.json `playbooks[]` and runs every probe, and refuses to proceed if the working tree is on a protected branch (live/uat/main/master). Returns STATUS: PASS, STATUS: WARN, or STATUS: BLOCK. A BLOCK aborts plan-create — fix the cited issue and re-run. Replaces the manual pre-flight steps from /proxiblue-skills:workflow-build-feature."
-model: opus
+model: haiku
 tools: Read, Glob, Bash, mcp__gitnexus-mageos__list_repos, mcp__graphiti__get_status
 ---
 

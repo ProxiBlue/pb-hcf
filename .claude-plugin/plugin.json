@@ -1,5 +1,5 @@
 {
   "name": "pb-hcf",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Full custom-workflow integration for HCF v2.0.0+ via the frontmatter hook pipeline. Ships 10 enrollable agents at 5 hook points (pre-plan, post-plan, pre-implementation, post-implementation, pre-commit, post-commit) covering pre-flight + protected-branch checks, Graphiti recall, manual test-plan posting, per-task incident recall, structural + historical + security review, adversarial final scan, verify-feature handoff, and build-complete summary — making /proxiblue-skills:workflow-build-feature obsolete. Multi-playbook wire installer (gitnexus, graphiti, security, …) plus the 3-agent security quorum library. Deterministic hook discovery via scripts/discover-hooks.sh + a SessionStart hook that auto-injects the resolved agent table into Claude's session context, bypassing HCF v2's LLM-improvised-bash discovery failure mode. HCF source untouched — pb-hcf works via context wiring (.claude/CLAUDE.md fenced section + .claude/<playbook>.md files) and host-side agent enrollment at the resolved target directory (auto-detected from .ddev mount source so RO-mount fleet gatekeeping is preserved; project-local .claude/agents/ fallback for non-fleet projects)."
 }

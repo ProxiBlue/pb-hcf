@@ -54,6 +54,36 @@ mkdir -p .claude/test-plans
 
 Write `.claude/test-plans/<ticket>.yml` per SCHEMA.md. Required fields: `ticket`, `plan_name`, `generated_at` (ISO-8601 UTC), `phases[]`.
 
+### Step 4.5 — Patch per-task plan files with the verify-feature contract
+
+For each YAML story where ALL of the following hold:
+
+- `manual_only` is `false`, AND
+- `spec_file` points to a Playwright spec under the project's test tree (typically `tests/m2-hyva-playwright/src/apps/<X>/tests/`), AND
+- The story was derived from a specific task file's "Requirements (Test Descriptions)" section (i.e. you can map the story back to a `.claude/plans/<plan-name>/NNN-*.md` file)
+
+Locate that source task file and APPEND (do not replace any existing content) a block at the bottom:
+
+```markdown
+## Verify-feature contract
+
+The TDD worker MUST follow `pb-hcf-playwright-tdd/templates/testing.md` § "Verify-feature contract — `@story` slugs" when writing the spec for this task.
+
+| Field | Value |
+|---|---|
+| story_slug | `<slug>` |
+| test_name | `<exact YAML test_name>` |
+| spec_file | `<spec path from YAML>` |
+
+Wrap the spec's test block(s) in `test.describe("<test_name>", () => { ... })` (or a single `test("<test_name>", ...)` for a linear flow) and prefix with `// @story: <slug>`. `/proxiblue-skills:verify-feature` aborts at pre-flight without this annotation.
+```
+
+Rules:
+- If a single task file backs MULTIPLE stories with `spec_file` set, emit ONE `## Verify-feature contract` block with one table row per story. Do not write multiple blocks per task file.
+- If a story's `spec_file` is shared across multiple task files (rare — happens when a feature spans several tasks but produces one user-facing flow), append the contract block to EACH of those task files. Tdd-worker reading any one of them sees the same authoritative slug.
+- If you cannot reliably map a story back to a task file (e.g. story derived only from `_plan.md` Success Criteria with no task linkage), skip the patch for that story. The tdd-worker still has the testing.md instructions to read the YAML directly as a fallback.
+- Idempotent — re-running the agent on a plan whose task files already carry a `## Verify-feature contract` block must REPLACE that block, not append a second copy. Match the exact `## Verify-feature contract` heading and replace everything from that heading to end-of-file (or to the next `## ` heading at the same level).
+
 ### Step 5 — Post the GH ticket comment
 
 Use the fleet helper that posts AND minimises as off-topic in one go (per `~/claude-skills-central/rules/gh-ticket-comments.md`):
@@ -93,6 +123,7 @@ Plan:        .claude/plans/<plan-name>/_plan.md
 YAML:        .claude/test-plans/<ticket>.yml
 Stories:     <N> total (AI=<K>, HI=<L>)
 Phases:      <list>
+Contracts:   <M> task file(s) patched with ## Verify-feature contract block
 GH comment:  posted + minimised (or "skipped — no GH_TOKEN")
 ```
 

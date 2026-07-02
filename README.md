@@ -4,6 +4,19 @@ Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based h
 
 > **HCF v2.0.0 compatibility (2026-06-26).** HCF dropped `.claude/pipeline.md`. Agents now declare hook membership via YAML frontmatter (`phase:` / `order:` / `mode:`) — see [HOOKS.md upstream](https://github.com/markshust/hcf#pipeline). `/pb-hcf:wire` enrolls bundled agents by stamping that frontmatter into `.claude/agents/<name>.md` overrides only when `--enable=<name>` is passed (default: off). `--enable-all` enrolls every bundled agent for the full workflow. If a legacy `.claude/pipeline.md` exists, `/pb-hcf:wire` refuses to run and points the user at `/hcf:project-update` to migrate first.
 
+## Requirements
+
+- **[HCF](https://github.com/markshust/hcf) ≥ 2.0.0** — hard dependency. pb-hcf is a companion plugin; it ships agents, playbooks, and a wire installer, but the plan-create / plan-orchestrate / hook-dispatch harness comes from HCF itself. Every agent enrolled by `/pb-hcf:wire` targets one of HCF v2's 8 frontmatter-declared hook points (`pre-plan` / `post-plan` / `pre-implementation` / `pre-batch` / `post-batch` / `post-implementation` / `pre-commit` / `post-commit`) — without HCF loaded, those hooks never fire and the enrolled agents stay dormant.
+
+  Install and configure HCF **before** installing pb-hcf:
+
+  1. `/plugin install hcf@hcf`
+  2. `/hcf:project-setup` (creates `.claude/CLAUDE.md`, `.claude/testing.md`, `.claude/code-standards.md`, `.claude/architecture.md`).
+  3. `/plugin install pb-hcf@pb-hcf`
+  4. `/pb-hcf:wire --enable-all` (or `--enable=<name>[,<name>]` for a curated subset).
+
+  Legacy pre-v2.0.0 HCF is **not** supported — `/pb-hcf:wire` refuses to run when `.claude/pipeline.md` (the pre-v2 registry) is present and points the operator at `/hcf:project-update` to migrate.
+
 ## What's in the plugin
 
 ### Skill

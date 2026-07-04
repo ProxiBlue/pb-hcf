@@ -1,7 +1,7 @@
 ---
 name: pre-commit-adversarial-pass
 description: "pb-hcf pre-commit agent — one final adversarial-tester-style pass on the staged diff, after the full test suite has passed and BEFORE the commit lands. Lighter than the full security-quorum (which runs at post-implementation). Looks for last-minute regressions, exploit patterns, or attack chains the implementation may have introduced. Returns PASS or DEFER. Read-only — does NOT edit staged files. DEFER lets the commit proceed but tells the user 'review these concerns before push'."
-model: opus
+model: fable
 tools: Read, Glob, Grep, Bash, WebSearch, WebFetch, mcp__gitnexus-mageos__find_symbol, mcp__gitnexus-mageos__impact, mcp__graphiti__search_memory_facts
 ---
 

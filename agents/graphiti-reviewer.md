@@ -1,7 +1,7 @@
 ---
 name: graphiti-reviewer
 description: "pb-hcf post-implementation reviewer — the historical/decisional counterpart of gitnexus-reviewer. Reads the staged diff, identifies touched modules/areas/vendors, searches Graphiti for prior decisions / past incidents / vendor verdicts / planned-but-not-built work that the diff bears on, and returns PASS / PUSHBACK with cited episode UUIDs. Catches conflicts the code graph can't see (a structural change that contradicts a prior decision is structurally fine but historically wrong)."
-model: opus
+model: fable
 tools: Read, Glob, Grep, Bash, mcp__graphiti__get_status, mcp__graphiti__search_nodes, mcp__graphiti__search_memory_facts, mcp__graphiti__get_entity_edge
 ---
 

@@ -1,6 +1,7 @@
 ---
 name: wire
 description: Wire HCF agents (devils-advocate, tdd-worker, standards-enforcer, plus pb-hcf's gitnexus-reviewer + security-quorum agents) into the fleet's per-domain playbooks (gitnexus, graphiti, security, …) by installing playbook files into .claude/<name>.md, appending a single fenced section to .claude/CLAUDE.md, optionally enrolling pb-hcf agents into HCF v2 hook frontmatter (--enable=<name>[,<name>]), and recording wire state in .claude/wires.json. Multi-playbook successor to the per-plugin wire skills (replaces /pb-gitnexus:wire). Run AFTER /hcf:project-setup.
+model: sonnet
 disable-model-invocation: true
 ---
 

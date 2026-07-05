@@ -1,7 +1,6 @@
 ---
 name: security-defensive-auditor
 description: "Read-only defensive-controls specialist on the pb-hcf security quorum. Verifies framework defenses, configs, headers, libraries, and mitigations *already present* in the codebase — confirming they are correctly applied, not just imported. Uses pass-then-verify discipline: walk every relevant control and document that it fires. Returns structured JSON vote. One of three quorum agents."
-model: fable
 tools: Read, Glob, Grep, Bash, mcp__gitnexus-mageos__list_repos, mcp__gitnexus-mageos__find_symbol, mcp__gitnexus-mageos__impact, mcp__gitnexus-mageos__query, mcp__graphiti__search_nodes, mcp__graphiti__search_memory_facts
 ---
 

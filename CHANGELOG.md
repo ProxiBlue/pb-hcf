@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.9] — 2026-07-05
+
+Third revision on the reviewer-tier question. Reverts v0.4.8's fable pins — reviewers inherit again — but this time the rule is refined to reflect the intent: **operator-controlled review tier via `/model` swap for outcome A/B testing**.
+
+- **→ inherit (was fable in v0.4.8):** `gitnexus-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. Same set as v0.4.7 — `model:` line removed from frontmatter.
+- **HCF-upstream (local drift):** `hcf/agents/devils-advocate.md` also unpinned (was fable in v0.4.8).
+
+**Intent:** run session=fable for a high-stakes plan → reviews use fable. Drop session=opus for cost-sensitive iteration → reviews use opus. Drop session=sonnet to A/B test outcomes at a lower tier without any file edits. Reviewers dial with the session.
+
+**Known caveat:** if Claude Code's Task-subagent model resolution follows immediate-caller precedence rather than top-level session (semantics not publicly documented), unpinned reviewers dispatched from `plan-orchestrate` (which has explicit `model: sonnet`) may inherit sonnet, silently downgrading review depth. Two mitigations documented in `~/claude-skills-central/rules/model-tiering.md`: (a) unpin `plan-orchestrate` too (local drift on HCF upstream), or (b) empirically verify per plan via transcript metadata and re-pin if the downgrade materialises.
+
 ## [0.4.8] — 2026-07-05
 
 Re-pin review agents to `model: fable`. Rule refined: reviewers are non-negotiable, pin explicitly to the ceiling — do NOT rely on session-inheritance since harness precedence for Task-dispatched subagents (parent-caller vs top-level session) is not guaranteed to bubble up.

@@ -1,7 +1,6 @@
 ---
 name: security-quorum
 description: "Orchestrator for the pb-hcf security quorum: spawns 3 specialist sub-agents (static-analyst, adversarial-tester, defensive-auditor) in parallel, runs a 2-round 2-of-3 consensus vote, synthesises a single PASS / FAIL / NEEDS-REVIEW verdict with dissents preserved. Invoked once per audit. Cheaper than the 21-agent team_security (~$0.30-1.00 per fire). Designed to fit a project's pipeline.md `## post-implementation` slot OR a workflow-build-feature quality gate. No solo voice — verdict requires quorum."
-model: fable
 tools: Read, Glob, Grep, Bash, Task, mcp__graphiti__search_nodes, mcp__graphiti__search_memory_facts, mcp__graphiti__get_status
 ---
 

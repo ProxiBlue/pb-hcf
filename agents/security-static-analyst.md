@@ -1,6 +1,7 @@
 ---
 name: security-static-analyst
 description: "Read-only static-analysis specialist on the pb-hcf security quorum. Reads code, traces data flows from sources to sinks, cites file:line for every claim. Uses gitnexus impact for indirect-caller chase and graphiti for prior-incident recall. Returns a structured JSON vote (PASS / FAIL / NEEDS-REVIEW) + findings list. One of three agents required for quorum; cannot operate solo."
+model: fable
 tools: Read, Glob, Grep, Bash, mcp__gitnexus-mageos__list_repos, mcp__gitnexus-mageos__find_symbol, mcp__gitnexus-mageos__impact, mcp__gitnexus-mageos__query, mcp__gitnexus-mageos__context, mcp__graphiti__search_nodes, mcp__graphiti__search_memory_facts, mcp__graphiti__get_status
 ---
 

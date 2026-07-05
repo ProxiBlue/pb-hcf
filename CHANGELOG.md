@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.8] — 2026-07-05
+
+Re-pin review agents to `model: fable`. Rule refined: reviewers are non-negotiable, pin explicitly to the ceiling — do NOT rely on session-inheritance since harness precedence for Task-dispatched subagents (parent-caller vs top-level session) is not guaranteed to bubble up.
+
+- **→ fable (7 review agents):** `gitnexus-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. Same set as v0.4.6; reverts the v0.4.7 unpinning.
+- **`~/claude-skills-central/rules/model-tiering.md`** updated: "inherit for verify/security/final-judge" clause removed; replaced with "**fable (or strongest available)**: verify / security / final-judge / review-panel stages. Pin explicitly — do NOT rely on inheritance from the calling skill or session." Reviewers get their own row; `inherit` is now reserved for orchestration + hard-design skills.
+- **HCF-upstream (local drift):** `hcf/agents/devils-advocate.md` also re-pinned to `model: fable`. Will re-drift on `plugin update hcf@hcf`.
+
+**Why the flip-flop:** v0.4.7 assumed session-model inheritance (semantics A: sub-agents fall back to top-level session tier). Operator called out the risk that Claude Code may use parent-caller inheritance (semantics B: sub-agents inherit `plan-orchestrate`'s explicit sonnet). Under B, unpinned reviewers would silently downgrade to sonnet — unacceptable for review depth. Pinning fable removes the ambiguity: reviewers always run at ceiling regardless of harness precedence rules.
+
 ## [0.4.7] — 2026-07-05
 
 Align with the new fleet model-tiering rule: verify/security/final-judge stages **inherit** from session, no explicit override. Session ceiling controls their tier — fable when the operator is on fable, opus when on opus, etc.

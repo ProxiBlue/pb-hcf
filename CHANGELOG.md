@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.7] — 2026-07-05
+
+Align with the new fleet model-tiering rule: verify/security/final-judge stages **inherit** from session, no explicit override. Session ceiling controls their tier — fable when the operator is on fable, opus when on opus, etc.
+
+- **inherit (was fable):** `gitnexus-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. The `model:` line is removed from each frontmatter — Task dispatch inherits the parent session model.
+
+**Why the revert:** the `~/claude-skills-central/rules/model-tiering.md` rule (added 2026-07-05, auto-loaded fleet-wide) explicitly states that verify/security/final-judge stages should NOT carry a model override — the operator's session tier is the ceiling. v0.4.6 pinned these to `fable` which zeroed that flexibility (opus-session runs would still burn fable on reviews). Per the rule, cheap writers + expensive skeptics = skeptics inherit the current expensive tier, they don't hard-code one.
+
+**HCF-upstream (local drift, will re-drift on next `plugin update hcf@hcf`):** `hcf/agents/devils-advocate.md` — `model: fable` line removed → inherit. Recommend the operator run session on fable (or opus + effort xhigh) when a plan-critique or security-quorum fires and pay the cost from the ceiling, not the pin.
+
+**Untouched from v0.4.6:** `skills/wire` stays at `model: sonnet` (installer, not review — explicit tier is correct there per rule's "sonnet for writing code"). Non-review agents unchanged.
+
 ## [0.4.6] — 2026-07-04
 
 Fable-era model targeting: review agents PROMOTED to fable, non-review paths held at sonnet/haiku. Assumes the operator runs the session on fable as the main orchestrator.

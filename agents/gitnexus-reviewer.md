@@ -1,7 +1,6 @@
 ---
 name: gitnexus-reviewer
 description: "pb-hcf post-implementation reviewer (HCF v2 hook). Reviews the staged-diff (whole plan, end-of-orchestration) against the project's GitNexus code graph to surface indirect callers / wiring the implementation may have broken or missed (Magento plugins, observers, DI preferences, layout overrides). Returns PASS or structured PUSHBACK with file:line citations + impact-tool results. Enrolled at `post-implementation`, order 30 — runs before standards-enforcer (50) and security-quorum (70)."
-model: fable
 tools: Read, Glob, Grep, Bash, mcp__gitnexus-mageos__list_repos, mcp__gitnexus-mageos__find_symbol, mcp__gitnexus-mageos__impact, mcp__gitnexus-mageos__query, mcp__gitnexus-mageos__context
 ---
 

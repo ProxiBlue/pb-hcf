@@ -11,7 +11,7 @@
     "enabled": true,
     "actions": [
       {
-        "action": "vendor/bin/phpunit -c dev/tests/unit/phpunit.xml.dist --stop-on-failure"
+        "action": "vendor/bin/phpunit -c dev/tests/unit/phpunit.xml.dist --stop-on-failure app/code/<CustomVendor>"
       },
       {
         "action": "echo 'Pre-push check: pushing to live or mageos requires a full composer install test.'"

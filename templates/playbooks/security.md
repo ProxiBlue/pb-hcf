@@ -17,6 +17,16 @@ This playbook is NOT the authority for (defer to sibling playbooks):
 
 When a finding cites both gitnexus impact AND graphiti incident recall, surface both — the multi-source citation is exactly what the quorum is meant to produce.
 
+## Mandatory prior-incident recall (query graphiti BEFORE planning or reviewing auth-touching code)
+
+Any agent that consults this playbook — a quorum specialist, a pre-plan reviewer (`devils-advocate`), or an ad-hoc auditor — MUST query graphiti for prior incidents and standing rules the moment a plan or diff touches **authentication, login, session, password, credential, or 2FA/MFA** code. This is not optional recall: an incident that recurs because nobody queried is exactly the failure this block exists to prevent.
+
+- Call `mcp__graphiti__search_memory_facts` AND `search_nodes` with `group_ids=[<project-id>, "fleet"]`.
+- Keyword sweep — try several, vocabulary varies: `2fa`, `TOTP`, `MFA bypass`, `login`, `session`, `authentication`, `re-enrollment`, `credential overwrite`.
+- Treat any hit as a **control requirement** in the plan/findings, not a footnote. Cite the fact.
+
+Standing fleet rule (seeded from a real incident — ai_assistant/webhooks, 2026-07-12): **a second factor must never be overwritable or re-enrollable by a session that has only passed the password stage.** Enrolling a NEW authenticator is allowed ONLY when no secret exists yet; if one already exists, force verification of the EXISTING factor. Re-enrollment / lost-device flows require a FULLY authenticated session (password re-entry or backup code), never a pending-2FA session. Verify this specific control on any login/2FA change — a stage-1-only gate cannot guard a stage-2 credential mutation.
+
 ## The quorum agents
 
 Three specialist agents bundled with pb-hcf, each taking a different angle so consensus is earned, not parroted:

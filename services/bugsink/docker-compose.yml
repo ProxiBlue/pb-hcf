@@ -1,0 +1,30 @@
+# Central Bugsink error-tracking service — pb-hcf issue-sentinel backend.
+# Host-level singleton (same pattern as Neo4j/graphiti and chatroom): ONE instance
+# on the host, every ddev project reports to it via host.docker.internal:7788,
+# one Bugsink project/DSN per ddev project.
+#
+# Start:   BUGSINK_SECRET=$(cat ~/.bugsink-secret) docker compose up -d
+# UI:      http://localhost:7788  (superuser created on first boot via CREATE_SUPERUSER)
+# Data:    named volume bugsink_data (SQLite) — include in host backup regime.
+#
+# Magento side per project: composer require justbetter/magento2-sentry,
+# DSN from this instance, environment=ddev, release tag = plan/batch id.
+
+services:
+  bugsink:
+    image: bugsink/bugsink:latest
+    container_name: bugsink
+    restart: unless-stopped
+    ports:
+      - "7788:7788"
+    environment:
+      SECRET_KEY: ${BUGSINK_SECRET:?set BUGSINK_SECRET (cat ~/.bugsink-secret)}
+      CREATE_SUPERUSER: "lucas@proxiblue.com.au:admin"
+      PORT: "7788"
+      BASE_URL: "http://localhost:7788"
+      BEHIND_HTTPS_PROXY: "false"
+    volumes:
+      - bugsink_data:/data
+
+volumes:
+  bugsink_data:

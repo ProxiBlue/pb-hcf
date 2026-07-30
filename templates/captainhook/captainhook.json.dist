@@ -1,0 +1,130 @@
+{
+    "config": {
+      "verbosity": "verbose",
+      "ansi-colors": true
+    },
+    "commit-msg": {
+        "enabled": true,
+        "actions": []
+    },
+  "pre-push": {
+    "enabled": true,
+    "actions": [
+      {
+        "action": "vendor/bin/phpunit -c dev/tests/unit/phpunit.xml.dist --stop-on-failure"
+      },
+      {
+        "action": "echo 'Pre-push check: pushing to live or mageos requires a full composer install test.'"
+      },
+      {
+        "action": "/bin/bash './bin/pre-push-check.sh'"
+      }
+    ]
+  },
+    "pre-commit": {
+        "enabled": true,
+        "actions": [
+            {
+                "action": "/bin/bash './bin/git-hooks/uat-merge-guard.sh'"
+            }
+        ]
+    },
+    "prepare-commit-msg": {
+        "enabled": false,
+        "actions": []
+    },
+    "post-commit": {
+        "enabled": false,
+        "actions": []
+    },
+    "post-merge": {
+      "enabled": false,
+      "actions": [
+        {
+          "action": "composer install",
+          "conditions": [
+            {
+              "exec": "\\CaptainHook\\App\\Hook\\Condition\\FileChanged\\Any",
+              "args": [
+                ["composer.json", "composer.lock"]
+              ]
+            }
+          ]
+        },
+        {
+          "action": "./vendor/bin/n98-magerun2 dev:module:security",
+          "conditions": [
+            {
+              "exec": "\\CaptainHook\\App\\Hook\\Condition\\FileChanged\\Any",
+              "args": [
+                ["composer.json", "composer.lock"]
+              ]
+            }
+          ]
+        },
+        {
+          "action": "composer run build-dev",
+          "conditions": [
+            {
+              "exec": "\\CaptainHook\\App\\Hook\\Condition\\FileChanged\\Any",
+              "args": [
+                ["composer.json", "composer.lock", "./app/etc/config.php", "./app/etc/env.php"]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "post-checkout": {
+        "enabled": true,
+        "actions": [
+          {
+            "action": "/bin/bash './bin/git-hooks/uat-branch-guard.sh'"
+          },
+          {
+            "action": "/bin/bash './bin/git-hooks/ensure-live-merged.sh'"
+          },
+          {
+            "action": "composer install",
+            "conditions": [
+              {
+                "exec": "\\CaptainHook\\App\\Hook\\Condition\\FileChanged\\Any",
+                "args": [
+                  ["composer.json", "composer.lock"]
+                ]
+              }
+            ]
+          },
+          {
+            "action": "./vendor/bin/n98-magerun2 dev:module:security",
+            "conditions": [
+              {
+                "exec": "\\CaptainHook\\App\\Hook\\Condition\\FileChanged\\Any",
+                "args": [
+                  ["composer.json", "composer.lock"]
+                ]
+              }
+            ]
+          },
+          {
+            "action": "composer run build-dev",
+            "conditions": [
+              {
+                "exec": "\\CaptainHook\\App\\Hook\\Condition\\FileChanged\\Any",
+                "args": [
+                  ["composer.json", "composer.lock", "./app/etc/config.php", "./app/etc/env.php"]
+                ]
+              }
+            ]
+          }
+        ]
+    },
+    "post-rewrite": {
+        "enabled": false,
+        "actions": []
+    },
+    "post-change": {
+        "enabled": false,
+        "actions": []
+    }
+}

@@ -1,6 +1,6 @@
 # Task 005: mutation-tester agent + infection template
 
-**Status**: pending
+**Status**: completed
 **Depends on**: none
 **Retry count**: 0
 
@@ -16,12 +16,18 @@ New enrollable agent agents/mutation-tester.md + templates/infection/infection.j
 - Graceful degrade: infection binary absent → PASS-with-note instructing composer install; never block on missing tool, record the gap loudly (still write _mutation_tester.md noting the skip).
 
 ## Requirements (Test Descriptions)
-- [ ] `it ships DORMANT with no phase/order/mode in source frontmatter and documents intended post-implementation order-45 single enrollment in the body prose`
-- [ ] `it scopes mutation run to changed app/code php files only excluding generated vendor and fixtures`
-- [ ] `it gates on min-MSI threshold and returns PUSHBACK listing each surviving mutant with file line and mutator`
-- [ ] `it writes _mutation_tester.md verdict to the plan dir on every run including PASS and degraded-skip`
-- [ ] `it instructs PASS-with-note when infection is not installed`
-- [ ] `it ships valid infection.json5.dist parseable as JSON5 with placeholder source dirs`
+- [x] `it ships DORMANT with no phase/order/mode in source frontmatter and documents intended post-implementation order-45 single enrollment in the body prose`
+- [x] `it scopes mutation run to changed app/code php files only excluding generated vendor and fixtures`
+- [x] `it gates on min-MSI threshold and returns PUSHBACK listing each surviving mutant with file line and mutator`
+- [x] `it writes _mutation_tester.md verdict to the plan dir on every run including PASS and degraded-skip`
+- [x] `it instructs PASS-with-note when infection is not installed`
+- [x] `it ships valid infection.json5.dist parseable as JSON5 with placeholder source dirs`
 
 ## Acceptance Criteria
 - PUSHBACK format consumable by tdd-worker retry loop (file:line + expected assertion improvement). Order 45 confirmed collision-free via `scripts/discover-hooks.sh --hook=post-implementation` once enrolled.
+
+## Implementation Notes
+- `agents/mutation-tester.md`: dormant frontmatter (name/description/tools only); body documents 6-step Process (scope → degrade-check → run → gate → verdict → write artefact), Side effects, and When in doubt sections mirroring `gitnexus-reviewer.md`'s canon shape.
+- `templates/infection/infection.json5.dist`: JSON5 with full-line `//` comments (no inline trailing comments, so the strip-then-`json.loads` grading method works); placeholder `app/code/<Vendor>` source dir; `minMsi: 60` / `minCoveredMsi: 75` documented defaults; `logs.json` path is what the agent parses for file:line + mutator PUSHBACK entries.
+- `templates/infection/README.md`: composer require --dev infection/infection, --filter scoping example, runtime-cost caveat, once-per-plan-not-per-batch, graceful-degrade note.
+- Registration into wire's enrollable-agent table is explicitly task 014's job, not this task's — left untouched here per the task's own Context note.

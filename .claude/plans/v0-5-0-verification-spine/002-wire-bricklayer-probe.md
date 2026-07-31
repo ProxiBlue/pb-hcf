@@ -1,6 +1,6 @@
 # Task 002: Wire — bricklayer probe
 
-**Status**: pending
+**Status**: completed
 **Depends on**: 001
 **Retry count**: 0
 
@@ -14,10 +14,10 @@ Extend skills/wire/SKILL.md so wiring detects bricklayer (vendor/bin/bricklayer 
 - Skip silently for non-Magento projects (no vendor/bin/bricklayer): record reachable=false with install hint, do NOT install playbook
 
 ## Requirements (Test Descriptions)
-- [ ] `it documents the bricklayer probe step (vendor/bin/bricklayer --version or list) in wire SKILL.md`
-- [ ] `it records reachable true with version detail in wires.json when binary present`
-- [ ] `it records reachable false with composer install hint when binary absent`
-- [ ] `it installs templates/playbooks/bricklayer.md only when probe succeeds`
+- [x] `it documents the bricklayer probe step (vendor/bin/bricklayer --version or list) in wire SKILL.md` — added `bricklayer.md` row to the "Per-playbook reachability probes" table (skills/wire/SKILL.md), landed before the bugsink row, per convention.
+- [x] `it records reachable true with version detail in wires.json when binary present` — table cell documents `details.version` capture; wires.json registry example (step 5) now includes a `bricklayer` entry with `"details": { "version": "1.17.0" }`.
+- [x] `it records reachable false with composer install hint when binary absent` — table cell documents `reachable: false` + `details.install` pointing at `composer require --dev inchoo/magento-bricklayer`, mirroring bugsink's `reachable: true`/`reachable: false` prose style.
+- [x] `it installs templates/playbooks/bricklayer.md only when probe succeeds` — added an "Exception" paragraph under Actions step 1 (Install each playbook) gating the `.claude/bricklayer.md` copy on `reachable: true`; all other playbooks stay unconditional.
 
 ## Acceptance Criteria
 - Wire SKILL.md instructions unambiguous for an executing agent; consistent with existing gitnexus/graphiti probe prose

@@ -34,6 +34,8 @@ Verify every file exists. Each missing one is a BLOCK.
 
 **Legacy pb-gitnexus fence** — if `.claude/CLAUDE.md` contains `<!-- pb-gitnexus:start -->` and NOT `<!-- pb-hcf:start -->`, BLOCK with: "Legacy pb-gitnexus fence detected. Run `/pb-hcf:wire` — it auto-migrates the fence."
 
+**Constitution check** — if `.claude/constitution.md` is missing, this is a **WARN, not a BLOCK** (adoption is gradual; not every project has filled one in yet). Cite: "`.claude/constitution.md` missing — run `/pb-hcf:wire` to install the template, then fill in project invariants. Proceeding without it; tdd-workers and reviewers won't carry project-wide invariants this run." You do NOT have a plan name yet at this hook (see "Inputs you receive" above), so do NOT attempt to copy the constitution into a plan directory here — that happens later, at `pre-implementation`, once the plan dir exists (see `pre-implementation-incident-recall`).
+
 ### Step 2 — Reachability probes (registry-driven)
 
 ```bash

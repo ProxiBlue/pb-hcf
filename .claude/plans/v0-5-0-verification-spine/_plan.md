@@ -4,7 +4,7 @@
 2026-07-31
 
 ## Status
-ready
+completed
 
 ## Objective
 Ship pb-hcf v0.5.0: close the verification gaps found in the 2026-07-29 tooling audit (pipeline-fire proof, mutation gate, runtime-error gate) and add upstream-quality stages (pre-mortem, interview, constitution) — all portable, wire-enrollable, HCF-source-untouched.
@@ -48,20 +48,20 @@ Existing enrolled orders (from source): pre-plan → pre-flight-check 5, pre-pla
 ## Task Overview
 | Task | Description | Depends On | Status |
 |------|-------------|------------|--------|
-| 001 | Bricklayer playbook template + gitnexus cross-ref | - | pending |
-| 002 | Wire: bricklayer probe | 001 | pending |
-| 003 | pre-mortem agent | - | pending |
-| 004 | pipeline-audit agent | - | pending |
-| 005 | mutation-tester agent + infection template | - | pending |
-| 006 | Constitution template + pre-flight-check injection | - | pending |
-| 007 | interview skill (clarity-scored scope builder) | - | pending |
-| 008 | Wire: bugsink probe + release-tagging convention | 002 | pending |
-| 009 | issue-sentinel agent + magento2-sentry install doc | 002, 008 | pending |
-| 010 | Rector templates (dist config, skip rules, phpstan ratchet) | - | pending |
-| 011 | Rector enforcement wiring (post-batch check + standards-enforcer consumption + tdd-worker context) | 010 | pending |
-| 012 | modernization-sweep skill | 010 | pending |
-| 013 | OTel env template + services/otel README | - | pending |
-| 014 | Release: version bump, CHANGELOG, README, wire --enable table update | 001-013 | pending |
+| 001 | Bricklayer playbook template + gitnexus cross-ref | - | completed |
+| 002 | Wire: bricklayer probe | 001 | completed |
+| 003 | pre-mortem agent | - | completed |
+| 004 | pipeline-audit agent | - | completed |
+| 005 | mutation-tester agent + infection template | - | completed |
+| 006 | Constitution template + pre-flight-check injection | - | completed |
+| 007 | interview skill (clarity-scored scope builder) | - | completed |
+| 008 | Wire: bugsink probe + release-tagging convention | 002 | completed |
+| 009 | issue-sentinel agent + magento2-sentry install doc | 002, 008 | completed |
+| 010 | Rector templates (dist config, skip rules, phpstan ratchet) | - | completed |
+| 011 | Rector enforcement wiring (post-batch check + standards-enforcer consumption + tdd-worker context) | 010 | completed |
+| 012 | modernization-sweep skill | 010 | completed |
+| 013 | OTel env template + services/otel README | - | completed |
+| 014 | Release: version bump, CHANGELOG, README, wire --enable table update | 001-013 | completed |
 
 ## Architecture Notes
 - Agents enroll ONLY via wire --enable copy with frontmatter stamped; defaults dormant (HCF convention). New-agent source files (003/004/005/009) carry NO phase/order/mode — task 014 registers them in the wire enrollable table + --enable-all list so wire can stamp them.

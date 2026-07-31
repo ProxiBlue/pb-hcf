@@ -1,6 +1,6 @@
 # Task 007: interview skill (clarity-scored scope builder)
 
-**Status**: pending
+**Status**: completed
 **Depends on**: none
 **Retry count**: 0
 
@@ -13,11 +13,11 @@ New skill skills/interview/SKILL.md: pre-plan scope builder. One question at a t
 - Refusal rule: below threshold + user forces proceed → emit spec anyway, stamped "CLARITY DEBT: <dimensions below 4>"
 
 ## Requirements (Test Descriptions)
-- [ ] `it asks exactly one question per turn targeting the lowest-scoring dimension`
-- [ ] `it maintains a visible 4-dimension scorecard updated every turn`
-- [ ] `it refuses handoff below 16 of 20 unless user overrides`
-- [ ] `it stamps CLARITY DEBT dimensions on forced proceed`
-- [ ] `it emits an Interview Spec block formatted for plan-create args consumption`
+- [x] `it asks exactly one question per turn targeting the lowest-scoring dimension` — skills/interview/SKILL.md "Question loop" step: one-question-per-turn rule, picks lowest-scoring dimension each turn, max 10 questions.
+- [x] `it maintains a visible 4-dimension scorecard updated every turn` — "Scorecard: 4-dimension scorecard (Goal/Constraints/Success Criteria/Context, 0-5 each)" section, shown after every turn.
+- [x] `it refuses handoff below 16 of 20 unless user overrides` — "Refusal rule: 16/20 threshold" section.
+- [x] `it stamps CLARITY DEBT dimensions on forced proceed` — `CLARITY DEBT: <dimensions scored below 4/5>` stamp on forced proceed.
+- [x] `it emits an Interview Spec block formatted for plan-create args consumption` — `## Interview Spec` output block + "plan-create handoff" section.
 
 ## Acceptance Criteria
 - Skill triggers naturally on vague build asks (frontmatter description covers "flesh out scope", "not sure what I want", "help me spec")

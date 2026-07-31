@@ -1,0 +1,73 @@
+<?php
+
+declare(strict_types=1);
+
+use Rector\Config\RectorConfig;
+use Rector\DeadCode\Rector\ClassMethod\RemoveUnusedConstructorParamRector;
+use Rector\DeadCode\Rector\ClassMethod\RemoveUnusedPublicMethodParameterRector;
+use Rector\DeadCode\Rector\ClassMethod\RemoveUnusedPromotedPropertyRector;
+use Rector\DeadCode\Rector\ClassMethod\RemoveArgumentFromDefaultParentCallRector;
+use Rector\DeadCode\Rector\StaticCall\RemoveParentCallWithoutParentRector;
+use Rector\CodeQuality\Rector\Class_\CompleteDynamicPropertiesRector;
+use Rector\Php81\Rector\Property\ReadOnlyPropertyRector;
+use Rector\Php82\Rector\Class_\ReadOnlyClassRector;
+use Rector\Set\ValueObject\LevelSetList;
+use Rector\Set\ValueObject\SetList;
+
+// Verified against rector/rector 2.5.9 (rectorphp/rector-src, checked 2026-07-31).
+// See templates/rector/README.md for the Magento-2-rector-extension maturity verdict
+// and the phpstan baseline-ratchet companion pattern.
+
+return RectorConfig::configure()
+    // Substitute <Vendor> with your module vendor namespace (e.g. app/code/Acme) before use.
+    ->withPaths([
+        __DIR__ . '/app/code/<Vendor>',
+    ])
+    ->withSets([
+        LevelSetList::UP_TO_PHP_83,
+        SetList::CODE_QUALITY,
+        SetList::TYPE_DECLARATION,
+        SetList::DEAD_CODE,
+    ])
+    // Never add ->withTreatClassesAsFinal(true) here: Magento plugins/interceptors cannot
+    // intercept final classes or final methods (developer.adobe.com/commerce/php/development/
+    // components/plugins, "Limitations" list), so finalizing classes breaks the plugin system.
+    ->withSkip([
+        // Never scan Magento's generated runtime code (Interceptor/Factory/Proxy/Extension
+        // classes under generated/) or the fixtures directory - both are output, not source.
+        '*/generated/*',
+        __DIR__ . '/app/code/<Vendor>/*/Test/*/_files/*',
+
+        // WHY: Magento's code generator (Magento\Framework\Code\Generator\Interceptor) emits an
+        // Interceptor subclass that extends the original class at compile time and is NOT itself
+        // declared readonly. PHP requires every subclass of a readonly class to also be readonly
+        // ("Fatal error: Non-readonly class B cannot extend readonly class A" - PHP RFC
+        // readonly_classes, wiki.php.net/rfc/readonly_classes). Any class reachable by a plugin
+        // (i.e. not final, not excluded via NoninterceptableInterface) will fatal once Magento
+        // generates its Interceptor if this class is marked readonly.
+        ReadOnlyClassRector::class,
+
+        // WHY: same PHP-level readonly-inheritance restriction as ReadOnlyClassRector, but at
+        // property granularity - Magento's Proxy/Interceptor generators and reflection-based
+        // hydration (ObjectManager\Factory, test mocks that skip the constructor) commonly write
+        // to properties outside the declaring constructor call; readonly properties reject that.
+        ReadOnlyPropertyRector::class,
+
+        // WHY: Magento plugins must mirror the observed method's exact parameter list -
+        // "you must forward [the arguments] ... match the default parameters and type hints of
+        // the original signature" (developer.adobe.com/commerce/php/development/components/
+        // plugins). Constructor arguments are also bound by parameter name via di.xml
+        // <arguments name="...">. Removing an "unused" param changes the public signature that
+        // plugins and di.xml argument overrides depend on.
+        RemoveUnusedConstructorParamRector::class,
+        RemoveUnusedPublicMethodParameterRector::class,
+        RemoveUnusedPromotedPropertyRector::class,
+        RemoveArgumentFromDefaultParentCallRector::class,
+        RemoveParentCallWithoutParentRector::class,
+
+        // WHY: Magento's DataObject/extension-attribute pattern (Magento\Framework\DataObject::
+        // __get/__set, generated extension-attribute interfaces) relies on dynamic property
+        // access rather than declared typed properties; auto-declaring typed properties for
+        // dynamically-set data fights that magic-accessor pattern.
+        CompleteDynamicPropertiesRector::class,
+    ]);

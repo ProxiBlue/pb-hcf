@@ -8,8 +8,8 @@
     {
       "name": "pb-hcf",
       "source": "./",
-      "description": "Full custom-workflow integration for HCF v2.0.0+ — 10 enrollable agents across 5 hook points, replaces /proxiblue-skills:workflow-build-feature, multi-playbook wire installer with RO-mount-respecting host-side enrollment, deterministic hook discovery + SessionStart auto-inject, opt-in via /pb-hcf:wire --enable=<name> or --enable-all.",
-      "version": "0.4.9",
+      "description": "Full custom-workflow integration for HCF v2.0.0+ — 14 enrollable agents across 7 hook points (pre-plan, post-plan, pre-implementation, post-batch, post-implementation, pre-commit, post-commit), replaces /proxiblue-skills:workflow-build-feature, multi-playbook wire installer with RO-mount-respecting host-side enrollment, deterministic hook discovery + SessionStart auto-inject, opt-in via /pb-hcf:wire --enable=<name> or --enable-all.",
+      "version": "0.5.0",
       "license": "Apache-2.0",
       "keywords": [
         "hcf",

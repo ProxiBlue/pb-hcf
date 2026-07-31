@@ -58,6 +58,20 @@ event counts, `is_resolved`. OpenAPI schema: `/api/canonical/0/schema/swagger-ui
 
 Token minted via: `docker exec bugsink bugsink-manage shell -c "from bsmain.models import AuthToken; print(AuthToken.objects.create().token)"`
 
+## Wire integration
+
+`/pb-hcf:wire` probes this service on every wire / re-wire / `--reprobe` run — see the
+`bugsink` row in `skills/wire/SKILL.md`'s "Per-playbook reachability probes" table. It sources
+`BUGSINK_URL_CONTAINER` and `BUGSINK_API_TOKEN` from the env file (never hardcodes them),
+curls `$BUGSINK_URL_CONTAINER/api/canonical/0/` with the bearer token, and treats HTTP `200`
+**or** `401` as reachable (both prove the service answered) — only connection-refused/timeout
+is recorded as unreachable. It also checks for a `BUGSINK_DSN_<PROJECT>` var in the same env
+file as a separate DSN-presence signal. The result lands in `.claude/wires.json` as a
+`playbooks[]` entry named `bugsink` with `details.endpoint` and `details.projectDsnVar`.
+
+Release tagging (`release` config value read by `justbetter/magento2-sentry`, filtered on by
+`issue-sentinel`) follows the `HCF_RELEASE` convention — see `docs/release-tagging.md`.
+
 ## Smoke-tested 2026-07-30
 
 Store API ingest (HTTP 200) → grouped as issue `PPS-1` → queryable via canonical

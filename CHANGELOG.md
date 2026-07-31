@@ -1,5 +1,124 @@
 # Changelog
 
+## [0.5.0] — 2026-07-31
+
+**Verification spine.** Four new enrollable agents, a new `post-batch` hook point, and a batch of
+supporting templates/skills/docs that close plan-quality, test-quality, runtime-error, and
+pipeline-proof gaps left open by v0.4.x. Wire's enrollable-agent table grows from 10 to **14
+agents at 7 hook points** (`pre-plan`, `post-plan`, `pre-implementation`, `post-batch`,
+`post-implementation`, `pre-commit`, `post-commit`); `--enable-all` now enrolls all 14.
+
+### Added
+
+- **`pre-mortem` agent** (`post-plan`, order 20, single) — prospective failure analysis. Assumes
+  the freshly created plan already failed in production, works backwards to the most plausible
+  causes ranked by likelihood × blast radius, then checks each against the plan's task
+  requirements as CONFIRMED-COVERED or UNCOVERED. Distinct lens from `devils-advocate`
+  (gap-finding forward from the plan vs failure-backwards from an assumed incident); runs after
+  it (order 10) and before `post-plan-manual-test-plan` (order 50).
+- **`mutation-tester` agent** (`post-implementation`, order **45**, single) + `templates/infection/`
+  (`infection.json5.dist` + README) — tests-that-test-the-tests. Runs Infection mutation testing
+  scoped to the plan's changed PHP files only (`app/code/**`, excluding generated/vendor/fixtures),
+  gates on a min-MSI threshold, and returns PASS or PUSHBACK listing every surviving mutant
+  (file:line + mutator) so tdd-workers strengthen assertions instead of gaming coverage. Runs once
+  per plan, after `graphiti-reviewer` (40) and before `standards-enforcer` (50).
+- **`issue-sentinel` agent** (**new `post-batch` hook point**, order 30, single) +
+  `templates/sentry/README.md` — runtime-error gate. After each batch, queries the central
+  Bugsink error tracker for issues `first_seen` since the batch started (project +
+  `HCF_RELEASE`-filtered), triages via bricklayer `diagnose-error` where wired, and returns PASS
+  or structured PUSHBACK with `friendly_id` + stacktrace excerpt + suspected file:line. Falls
+  back to a thin `var/report` + cron-stderr scan when Bugsink is unreachable. Writes
+  `_issue_sentinel.md` to the plan dir every batch — first agent to use pb-hcf's `post-batch`
+  hook point. `templates/sentry/README.md` documents the per-project `justbetter/magento2-sentry`
+  install that feeds Bugsink.
+- **`pipeline-audit` agent** (`post-commit`, order 90, single) — proves which enrolled pipeline
+  phases actually fired vs silently skipped this run. Mechanizes the
+  hcf-build-integration-gaps lesson (built-but-never-fired integrations). Derives the
+  expected-agent list from `.claude/wires.json` enrollments, maps each to a documented evidence
+  artefact, and posts a PASS/FAIL verdict via chatroom MCP (else writes `_pipeline_audit.md` in
+  the plan dir). Runs last, tail of `post-commit`, so any artefact another agent could have
+  written already exists on disk before the audit runs.
+- **`templates/playbooks/bricklayer.md`** — runtime-resolved-truth playbook for the
+  `inchoo/magento-bricklayer` MCP (DI preferences, merged plugin chains, live EAV, actual DB
+  schema, error triage). Probe-gated install: `/pb-hcf:wire` only copies it when
+  `vendor/bin/bricklayer` is detected on the target project; unreachable projects get a
+  `reachable: false` + install-hint entry in `wires.json` instead. `gitnexus.md` gains a
+  cross-reference: on a resolution disagreement between the static graph and the live app, trust
+  bricklayer.
+- **`templates/constitution.md`** — immutable project-invariants template. `/pb-hcf:wire` installs
+  it once to `.claude/constitution.md` (install-without-overwrite — an existing file is never
+  touched). `pre-flight-check` WARNs (does not BLOCK) when it's missing. `pre-implementation-incident-recall`
+  copies it, verbatim and idempotently, into each plan dir as `_constitution.md` once the plan dir
+  exists, so every tdd-worker and reviewer carries the invariants without re-deriving them.
+- **`/pb-hcf:interview` skill** — pre-plan clarity-scored scope builder. Interviews the user one
+  question at a time (Harper Reed pattern), scores the emerging spec across Goal / Constraints /
+  Success Criteria / Context (0–5 each), and refuses handoff to `/hcf:plan-create` below threshold
+  16/20. Auto-triggers on vague build asks ("flesh out scope", "spec this out", …) — no explicit
+  invocation required.
+- **`/pb-hcf:modernization-sweep` skill** — apply-mode rector for *existing* custom Magento code.
+  Exactly one `app/code/<Vendor>/<Module>` × one ruleset per invocation off the ordered ladder
+  (`UP_TO_PHP_83` → code-quality → type-declaration → dead-code), its own
+  `modernize/<module>-<set>` branch, dirty-tree + protected-branch refusals, a post-apply
+  idempotency dry-run, the module's unit tests, then hand-off to the standard review chain. Never
+  merges itself. Designed as bounded, ralph-loop-friendly grind work; tracks progress in
+  `.claude/modernization-state.json`.
+- **`templates/rector/`** (`rector.php.dist` + README) — deterministic PHP 8.3 modernization
+  convention for Magento custom code: code-quality + type-declaration + dead-code rector sets,
+  custom-namespace `withPaths()` placeholder, and a `withSkip()` list encoding known
+  Magento-plugin-breaking rules (readonly classes/properties, unused-constructor/plugin-param
+  removal, dynamic-property completion) with a one-line WHY each.
+- **`scripts/rector-check.sh`** — deterministic dry-run gate: rector against changed
+  `app/code/**/*.php` files only, non-empty proposed-transform diff = exit 1. Documented for
+  `post-batch` / `pre-commit` use.
+- **`templates/otel/otel.env.dist` + `services/otel/README.md`** — Claude Code OTLP telemetry
+  for the fleet: client-side env template (`CLAUDE_CODE_ENABLE_TELEMETRY`,
+  `OTEL_METRICS_EXPORTER`, `OTEL_EXPORTER_OTLP_ENDPOINT`, per-project resource attributes) and a
+  collector-options doc (SigNoz vs Langfuse vs plain otel-collector→file, mirror-of-bugsink
+  singleton pattern, what metrics matter). Docs + env only for 0.5.0 — no collector deployment
+  ships yet.
+- **`docs/release-tagging.md`** — the `HCF_RELEASE=<plan-name>#<batch-n>` convention that ties
+  Bugsink events and `magento2-sentry` releases to a specific plan/batch, consumed by
+  `issue-sentinel`'s `first_seen`-since-batch-start query.
+- **Wire — bugsink probe.** `/pb-hcf:wire` (and `--reprobe`) now probes the central Bugsink
+  instance, sourcing credentials from `~/.pb-hcf/bugsink.env` (never hardcoded), treating HTTP
+  `200` **or** `401` as reachable (either proves the service answered), and recording a separate
+  `BUGSINK_DSN_<PROJECT>`-presence boolean in `wires.json`.
+- **Wire — bricklayer probe.** `/pb-hcf:wire` detects `vendor/bin/bricklayer`, captures its CLI
+  version, and records the result (or an install hint) in `wires.json`'s `playbooks[]`.
+
+### Changed
+
+- **`skills/wire/SKILL.md`** — enrollable-agent table grows from 10 to 14 rows (adds
+  `pre-mortem`, `issue-sentinel`, `mutation-tester`, `pipeline-audit` at their intended
+  `phase`/`order`/`mode`); "ships N enrollable agents" prose and `--enable-all` shorthand list
+  updated to all 14 names; new "verification spine only" row added to the recommended
+  enrollment-sets table.
+- **`agents/pre-flight-check.md`** — new constitution check: WARN (not BLOCK) when
+  `.claude/constitution.md` is missing, since adoption is gradual and this hook runs before a
+  plan dir exists to copy into.
+- **`agents/pre-implementation-incident-recall.md`** — new Step 0: copies
+  `.claude/constitution.md` into the plan dir as `_constitution.md` once the plan dir provably
+  exists, independent of graphiti reachability, idempotent on re-run.
+- **`agents/pre-commit-adversarial-pass.md`** — new Step 4 (renumbering the verdict-build step to
+  5): judges `scripts/rector-check.sh`'s contested transforms — public method signature changes,
+  dead-code removal, and constructor changes near plugin/observer/`di.xml` wiring rector's own
+  skip-list doesn't cover — citing file:line + the specific Magento mechanism at risk.
+- **`templates/playbooks/gitnexus.md`** — adds a defer-to-bricklayer line for "what actually
+  resolves at runtime" questions, since GitNexus's static snapshot can't see env-specific module
+  enablement.
+- **`services/bugsink/README.md`** — documents the wire integration (probe semantics, DSN-presence
+  check) and points at `docs/release-tagging.md` for the `HCF_RELEASE` convention.
+- **`.claude-plugin/plugin.json` / `.claude-plugin/marketplace.json`** — version 0.4.9 → 0.5.0;
+  descriptions updated from "10 enrollable agents at 5 hook points" to "14 enrollable agents at
+  7 hook points", with `post-batch` added to the hook list and the new agents folded into the
+  capability summary.
+- **`README.md`** — agents table gains `pre-mortem` / `issue-sentinel` / `mutation-tester` /
+  `pipeline-audit` with phase/order (mutation-tester at order 45, distinct from the reviewer pair
+  at 30/40); skills table gains `/pb-hcf:interview` and `/pb-hcf:modernization-sweep`; playbook
+  table gains `bricklayer.md`; new "Other templates" table covers constitution/rector/infection/
+  sentry/otel/release-tagging/rector-check.sh; default-enrollment-knobs table reordered to show
+  where each new agent sits relative to the existing pipeline; Status table gains a v0.5.0 row.
+
 ## [0.4.9] — 2026-07-05
 
 Third revision on the reviewer-tier question. Reverts v0.4.8's fable pins — reviewers inherit again — but this time the rule is refined to reflect the intent: **operator-controlled review tier via `/model` swap for outcome A/B testing**.

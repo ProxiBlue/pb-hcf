@@ -56,7 +56,46 @@ mcp__graphiti__search_memory_facts(group_ids=["<project-id>", "fleet"], query="<
 
 If a prior incident in graphiti matches a finding here, that escalates the severity (the org has been bitten by this exact thing before).
 
-### Step 4 — Build the verdict
+### Step 4 — rector-diff judgment (deterministic layer's findings, judged here)
+
+`scripts/rector-check.sh` is the **deterministic layer**: it dry-runs rector (per
+`templates/rector/rector.php.dist`) scoped to changed `app/code/**/*.php` files (same
+changed-files convention as the rest of this pass) and fails loud — non-zero exit + the
+proposed transform diff on stdout — when rector has something to propose. It does not, and
+should not, judge whether a proposed transform is safe to apply; that's a judgment call, not
+a deterministic check, which is why it lives here instead of in the script.
+
+```bash
+scripts/rector-check.sh
+```
+
+If it exits `0` (clean, or rector/`rector.php` not installed — read its stdout to tell which),
+there is nothing to judge — move on to Step 5.
+
+If it exits `1`, you have a transform diff to judge. You are **not** re-litigating rector's
+generic style rules (`SetList::CODE_QUALITY`, `TYPE_DECLARATION`, `DEAD_CODE` sets) — rector.php's
+`withSkip()` block already carries the known Magento-plugin-breaking rules with a one-line WHY
+each (readonly classes/properties, unused-constructor/plugin-param removal, dynamic-property
+completion — see `templates/rector/rector.php.dist`). Your job is the **contested remainder**:
+transforms rector proposes that aren't on that skip list but still touch Magento-sensitive shape:
+
+- **Public method signature changes** (param/return type additions) on any class reachable by a
+  plugin, observer, or `di.xml` argument override — use `mcp__gitnexus-mageos__find_symbol` /
+  `mcp__gitnexus-mageos__impact` to check who calls or extends the touched class before trusting
+  a type-declaration transform is safe.
+- **Dead-code removal** touching a method that's only referenced via `di.xml`, an event
+  observer, or reflection (Magento's plugin/observer wiring is XML-declared, not always visible
+  to a pure static-analysis pass like rector's).
+- **Constructor changes** on any class where Magento's ObjectManager or a test's mock construction
+  might bypass the constructor.
+
+For each contested transform: cite `file:line`, the proposed change, the specific Magento
+mechanism at risk, and whether you judge it safe to keep staged, or a concern for `DEFER`.
+Transforms with no plausible Magento-wiring risk (pure style/type tightening on private methods,
+no plugins/observers/di.xml touching the class) don't need a citation — note them as reviewed
+and move on.
+
+### Step 5 — Build the verdict
 
 You are READ-ONLY. Do NOT edit staged files. Do NOT unstage. Your output is the verdict.
 
@@ -71,6 +110,8 @@ Adversarial sweep of staged diff:
   - <N> input sources reviewed
   - <M> sink-behaviour additions reviewed
   - <K> dependency changes reviewed (no CVE hits)
+  - rector-diff: scripts/rector-check.sh clean, or contested transforms reviewed with no
+    Magento-wiring risk found
   - Cross-checked graphiti for matching prior incidents — none.
 
 Tool calls: gitnexus=<n>, graphiti=<n>, web=<n>
@@ -93,6 +134,12 @@ Concerns surfaced — commit will proceed; review BEFORE push:
 
 2. [<file:line>] `composer.lock` bumps `<package>` to `<version>` — NVD records CVE-YYYY-NNNN affecting `<version range>` (RCE via crafted input). Fixed in `<fixed-version>`.
    - Suggested fix: bump to `<fixed-version>` before deploy.
+
+3. [<file:line>] rector proposes `<transform name>` on `<method>`, a public method reachable by
+   plugin `<Vendor_Module::Plugin>` (`mcp__gitnexus-mageos__impact` caller chain: <result>) —
+   the type-declaration tightening narrows a param plugins currently pass loosely.
+   - Suggested fix: keep the transform staged only after confirming every plugin caller already
+     satisfies the tightened type, or exclude the rule for this class in `rector.php`'s `withSkip()`.
 
 If you proceed without addressing these, expect them in the security-quorum verdict's next-run delta when the post-deploy audit fires.
 ```

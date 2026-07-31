@@ -24,6 +24,26 @@ If none → output `STATUS: SKIPPED — no in_progress plan found.` Exit. Worker
 
 ## Process
 
+### Step 0 — Constitution copy (plan-dir-scoped, runs once regardless of graphiti reachability)
+
+`pre-flight-check` only WARNs if `.claude/constitution.md` is missing — it cannot copy anything
+because it runs before the plan dir exists (Phase 3 creates it). This is the first point in the
+pipeline where the plan dir provably exists, so this is where the copy happens.
+
+1. Resolve the plan dir the same way as Step 3 below (glob `.claude/plans/*/`, pick the one
+   `_plan.md` with `Status: in_progress`).
+2. If `.claude/constitution.md` exists, copy it verbatim into that plan dir as `_constitution.md`
+   — a plain file copy, not an `@`-mount, so the plan dir stays self-contained and readable by
+   tdd-workers and reviewers without any extra resolution step.
+3. **Idempotency**: if `_constitution.md` already exists in the plan dir (re-run scenario), overwrite
+   it with the current `.claude/constitution.md` content so the plan dir never drifts from the
+   source of truth.
+4. If `.claude/constitution.md` does not exist, skip silently — `pre-flight-check` already
+   surfaced the WARN; do not repeat it here.
+
+This step runs independently of Steps 1–2 (graphiti reachability) below — the constitution copy
+has nothing to do with graphiti and must not be skipped just because graphiti is down.
+
 ### Step 1 — Reachability sanity
 
 ```bash

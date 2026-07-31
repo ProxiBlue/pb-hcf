@@ -1,6 +1,6 @@
 # Task 003: pre-mortem agent
 
-**Status**: pending
+**Status**: completed
 **Depends on**: none
 **Retry count**: 0
 
@@ -14,11 +14,11 @@ New enrollable agent agents/pre-mortem.md: prospective failure analysis of a fre
 - Output: ranked failure scenarios (likelihood × blast radius), each mapped to CONFIRMED-COVERED (cites task requirement) or UNCOVERED (proposes concrete new requirement/task edit). Auto-apply Critical items to task files, list the rest for the user — mirror devils-advocate's auto-apply convention.
 
 ## Requirements (Test Descriptions)
-- [ ] `it ships DORMANT with no phase/order/mode in source frontmatter and documents intended post-plan order-20 single enrollment in the body prose`
-- [ ] `it instructs assume-failure-then-work-backwards method with likelihood and blast-radius ranking`
-- [ ] `it requires every scenario mapped to a covering task requirement or an UNCOVERED proposal`
-- [ ] `it writes _pre_mortem.md to the plan directory and auto-applies Critical fixes to task files`
-- [ ] `it explicitly differentiates its lens from devils-advocate to avoid duplicate findings`
+- [x] `it ships DORMANT with no phase/order/mode in source frontmatter and documents intended post-plan order-20 single enrollment in the body prose`
+- [x] `it instructs assume-failure-then-work-backwards method with likelihood and blast-radius ranking`
+- [x] `it requires every scenario mapped to a covering task requirement or an UNCOVERED proposal`
+- [x] `it writes _pre_mortem.md to the plan directory and auto-applies Critical fixes to task files`
+- [x] `it explicitly differentiates its lens from devils-advocate to avoid duplicate findings` (note: this assertion passed immediately once the "Output"/"Lens" sections were written for requirement 4 — the Lens section was authored to satisfy both requirements together, so requirement 5's grep-based test was already green when first run; no separate implementation step was needed)
 
 ## Acceptance Criteria
 - After task 014 registers it and `wire --enable=pre-mortem` stamps the phase, `scripts/discover-hooks.sh --hook=post-plan` lists it at order 20, after devils-advocate/order 10 and before manual-test-plan/order 50.

@@ -44,6 +44,8 @@ For each discovered playbook, attempt a domain-appropriate reachability probe an
 |---|---|---|
 | `gitnexus.md` | `curl -sS -o /dev/null -w '%{http_code}\n' -m 3 http://gitnexus:4747/` then `mcp__gitnexus-mageos__list_repos` | HTTP 200 + non-empty repo list |
 | `graphiti.md` | `mcp__graphiti__get_status` (URL detected from env — host or `host.docker.internal`) | `status: ok` |
+| `bricklayer.md` | Check for the `vendor/bin/bricklayer` executable first — absent means non-Magento project or bricklayer not installed as a dev dependency, skip straight to unreachable. If present, capture the CLI version via `vendor/bin/bricklayer list \| head -1` (or `vendor/bin/bricklayer --version`, whichever the installed CLI supports) | Executable present + version captured → record it in `details.version` and mark `reachable: true`. Executable absent → mark `reachable: false` and record an install hint in `details.install` pointing at `composer require --dev inchoo/magento-bricklayer` (Magento-project-only dev dependency; absence on a non-Magento project is expected and non-fatal). |
+| `bugsink` (central service, not a per-project playbook file) | Source credentials from the env file — `~/.pb-hcf/bugsink.env` on host, or the equivalent container-mounted copy — never hardcode `BUGSINK_URL_CONTAINER` or `BUGSINK_API_TOKEN` in any committed file. Probe: `curl -sS -o /dev/null -w '%{http_code}\n' -m 3 -H "Authorization: Bearer $BUGSINK_API_TOKEN" $BUGSINK_URL_CONTAINER/api/canonical/0/`. Separately check DSN presence for this project: does a `BUGSINK_DSN_<PROJECT>` var exist in the same env file? | HTTP `200` **or** `401` both count as `reachable: true` (either proves the service answered — a `401` just means the token/scheme was rejected, the service is up). Connection-refused / timeout = `reachable: false`. Record DSN presence as a separate `details.projectDsnVar` boolean/name, independent of reachability. |
 | `security.md` | No standalone probe — quorum agents reachable as long as `gitnexus` + `graphiti` are. Mark `reachable: true` unconditionally; record dependency on the other two playbooks' state in `details`. | n/a |
 | `playwright.md` | (future — define when shipping) | TBD |
 | Any other | Skip probe; mark `reachable: unknown` | — |
@@ -59,6 +61,28 @@ For each `<name>.md` under `templates/playbooks/`, copy verbatim to `.claude/<na
 - If destination exists and differs → show diff, confirm overwrite (default yes unless `--no-overwrite` passed).
 - If destination exists and is identical → skip silently.
 
+**Exception — `bricklayer.md` is probe-gated, not unconditional.** Run the `bricklayer` probe (see the reachability table above) before copying this one file. Install `.claude/bricklayer.md` **only when the probe reports `reachable: true`** (i.e. `vendor/bin/bricklayer` exists and a version was captured). When the probe reports `reachable: false`, skip the copy entirely — still record the `reachable: false` + install-hint entry in `.claude/wires.json` (step 5), but do not write `.claude/bricklayer.md` and do not list it in the CLAUDE.md fenced section (step 2) for this project. All other discovered playbooks remain unconditional per the rule above.
+
+<!-- pb-hcf:constitution-install:start -->
+### 1a. Install the constitution template (install-without-overwrite)
+
+Copy `$CLAUDE_PLUGIN_ROOT/templates/constitution.md` to `.claude/constitution.md` **only when
+`.claude/constitution.md` is absent**. This is different from the playbook-install rule above:
+constitution content is per-project prose filled in by the user over time (branch rules, vendor
+blocklist, verification checklist, never-edit-vendor/core, testing scope rules) — an existing
+`.claude/constitution.md` represents that project's already-filled-in invariants and must never
+be silently overwritten or diff-prompted, even with `--no-overwrite` unset.
+
+- `.claude/constitution.md` **does not exist** → copy the template verbatim, report `installed`.
+- `.claude/constitution.md` **exists** (filled-in or still template placeholders) → skip
+  unconditionally, report `already present — not overwritten`. There is no `--force` flag for
+  this file; if the user wants the latest template, they diff and merge by hand.
+
+This is the plan-dir-agnostic half of constitution support — the copy into each plan directory
+as `_constitution.md` happens later, at `pre-implementation`, once a plan dir exists (see
+`pre-implementation-incident-recall`), not here.
+<!-- pb-hcf:constitution-install:end -->
+
 ### 2. Update the single fenced section in `.claude/CLAUDE.md`
 
 Use ONE fenced section with stable markers, listing pointers to ALL installed playbooks:
@@ -73,6 +97,7 @@ For domain-specific tooling and per-agent playbooks, consult the relevant file:
 - **Knowledge graph** (discussions, decisions, planned features, prior incidents) → `@.claude/graphiti.md`
 - **Security audit** (OWASP, vulnerability assessment) → `@.claude/security.md`
 - **End-to-end testing** (Playwright + coverage) → `@.claude/playwright.md`
+- **PHP-8.3 modernization convention** (rector transform rules + Magento-plugin-safety skip list — generation-time context, not a playbook) → `@rector.php` (install via `templates/rector/README.md`)
 
 Each playbook declares its **Authority scope** at the top — defer to the named playbook when a question falls in its scope; cross-cite when a question spans two.
 <!-- pb-hcf:end -->
@@ -86,24 +111,28 @@ If `.claude/CLAUDE.md` contains a legacy `<!-- pb-gitnexus:start --> ... <!-- pb
 
 ### 4. Optional hook enrollment for pb-hcf bundled agents
 
-pb-hcf ships 10 enrollable agents that together implement the **full** custom-workflow that `/proxiblue-skills:workflow-build-feature` used to orchestrate as a wrapper. Each agent enrolls at a specific HCF v2 hook so vanilla `/hcf:plan-create` + `/hcf:plan-orchestrate` execute the entire flow — no wrapping skill required.
+pb-hcf ships 14 enrollable agents that together implement the **full** custom-workflow that `/proxiblue-skills:workflow-build-feature` used to orchestrate as a wrapper, plus the verification-spine additions from the v0.5.0 release (prospective failure analysis, mutation testing, runtime error triage, pipeline-firing proof). Each agent enrolls at a specific HCF v2 hook so vanilla `/hcf:plan-create` + `/hcf:plan-orchestrate` execute the entire flow — no wrapping skill required.
 
 | Agent | `phase` | `order` | `mode` | What it does |
 |---|---|---|---|---|
 | `pre-flight-check` | `pre-plan` | `5` | `single` | Verifies onboarding artifacts, loops `wires.json` probes, refuses to run on protected branches (`live` / `uat` / `main` / `master`). Replaces workflow-build-feature steps 1–3. |
 | `pre-plan-graphiti-recall` | `pre-plan` | `10` | `single` | Searches Graphiti for the feature topic — prior decisions, incidents, vendor verdicts, planned-but-not-built. Returns Historical Context block. |
+| `pre-mortem` | `post-plan` | `20` | `single` | Assumes the freshly created plan ALREADY FAILED in production and works backwards to the most plausible causes, then verifies each against plan tasks as CONFIRMED-COVERED or UNCOVERED. Distinct lens from `devils-advocate` (gap-finding vs failure-backwards). |
 | `post-plan-manual-test-plan` | `post-plan` | `50` | `single` | After `devils-advocate` finishes, mines `_plan.md` + per-task Requirements, derives user stories, posts a phased GH ticket comment + writes `.claude/test-plans/<ticket>.yml` per SCHEMA. Replaces workflow-build-feature step 6. |
-| `pre-implementation-incident-recall` | `pre-implementation` | `10` | `single` | Per-task Graphiti lookup of prior incidents in the touched area. PREPENDS findings to each `_task-NNN.md` so tdd-workers see them. |
+| `pre-implementation-incident-recall` | `pre-implementation` | `10` | `single` | Per-task Graphiti lookup of prior incidents in the touched area. PREPENDS findings to each `_task-NNN.md` so tdd-workers see them. Also copies `.claude/constitution.md` into the plan dir as `_constitution.md` once the plan dir exists. |
+| `issue-sentinel` | `post-batch` | `30` | `single` | Queries the central Bugsink error tracker for issues `first_seen` since this batch started (project + `HCF_RELEASE` filtered), triages via bricklayer `diagnose-error` where wired, returns PASS or PUSHBACK with `friendly_id` + stacktrace + suspected file:line. Falls back to a thin log scan when Bugsink is unreachable. First agent enrolled at the `post-batch` hook point. |
 | `gitnexus-reviewer` | `post-implementation` | `30` | `single` | Diff-impact review via GitNexus code graph (callers, plugins, observers, DI wiring). |
 | `graphiti-reviewer` | `post-implementation` | `40` | `single` | Diff-vs-knowledge-graph review (prior decisions, incidents, vendor verdicts, planned work overlap). |
+| `mutation-tester` | `post-implementation` | `45` | `single` | Runs Infection mutation testing on the plan's changed PHP files only, gates on min-MSI, returns PASS or PUSHBACK listing surviving mutants (file:line + mutator) so tdd-workers strengthen assertions instead of gaming coverage. Runs once, after `graphiti-reviewer` (40), before `standards-enforcer` (50). |
 | `security-quorum` | `post-implementation` | `70` | `single` | 3-agent 2-of-3 security consensus (spawns its own trio: static-analyst, adversarial-tester, defensive-auditor). |
-| `pre-commit-adversarial-pass` | `pre-commit` | `10` | `single` | One last adversarial-tester pass on the staged diff after tests pass, before commit. Returns PASS or DEFER (advisory; doesn't block commit). |
+| `pre-commit-adversarial-pass` | `pre-commit` | `10` | `single` | One last adversarial-tester pass on the staged diff after tests pass, before commit. Also judges `scripts/rector-check.sh`'s contested transforms. Returns PASS or DEFER (advisory; doesn't block commit). |
 | `post-commit-verify-handoff` | `post-commit` | `10` | `single` | Prints the fresh-thread instruction for `/verify-feature` (skill convention). |
 | `post-commit-build-summary` | `post-commit` | `20` | `single` | Prints the BUILD COMPLETE summary aggregating every hook's verdict + deferred concerns + ready-to-deploy guidance. Replaces workflow-build-feature step 13. |
+| `pipeline-audit` | `post-commit` | `90` | `single` | Proves which enrolled pipeline phases actually fired vs silently skipped this run, by mapping `.claude/wires.json` enrollments to documented evidence artefacts. Runs last (tail of the pipeline) so any artefact another agent wrote already exists. Mechanizes the hcf-build-integration-gaps lesson. |
 
 (The 3 security specialists — `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor` — are library agents spawned BY `security-quorum` at runtime. They do NOT declare a `phase` themselves and are NOT in the enrollable list.)
 
-**Default: nothing is enrolled.** All 10 agents ship dormant in `$PLUGIN/agents/<name>.md` without `phase` — visible to `Task` but not auto-fired in the pipeline (mirrors how HCF ships `standards-enforcer` with its `phase` commented out).
+**Default: nothing is enrolled.** All 14 agents ship dormant in `$PLUGIN/agents/<name>.md` without `phase` — visible to `Task` but not auto-fired in the pipeline (mirrors how HCF ships `standards-enforcer` with its `phase` commented out).
 
 ### Target-directory resolution (host-side, fleet-aware)
 
@@ -119,7 +148,7 @@ In all three, the path must be **writable from host**. If not, abort with a clea
 
 **To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example:
 - `/pb-hcf:wire --enable=pre-flight-check,gitnexus-reviewer,security-quorum` — minimal sane set
-- `/pb-hcf:wire --enable-all` — enroll **all 10** (full workflow-build-feature replacement)
+- `/pb-hcf:wire --enable-all` — enroll **all 14** (full workflow-build-feature replacement + verification spine)
 
 For each enrolled name (let `TARGET` = resolved target directory per above):
 
@@ -152,6 +181,7 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
 | Non-Magento project, graphiti recall only | `--enable=pre-plan-graphiti-recall,graphiti-reviewer,pre-implementation-incident-recall` |
 | Security-focused only | `--enable=pre-flight-check,security-quorum,pre-commit-adversarial-pass` |
 | Minimal (just structural review) | `--enable=gitnexus-reviewer` |
+| Verification spine only (plan-quality + test-quality + runtime-error + pipeline-proof, no test-plan posting) | `--enable=pre-mortem,mutation-tester,issue-sentinel,pipeline-audit` |
 
 ### 5. Write `.claude/wires.json` registry
 
@@ -173,6 +203,23 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
       "probe": "mcp__graphiti__get_status",
       "reachable": true,
       "details": { "neo4jConnected": true }
+    },
+    {
+      "name": "bricklayer",
+      "file": ".claude/bricklayer.md",
+      "probe": "vendor/bin/bricklayer list | head -1",
+      "reachable": true,
+      "details": { "version": "1.17.0" }
+    },
+    {
+      "name": "bugsink",
+      "file": null,
+      "probe": "curl -sS -H \"Authorization: Bearer $BUGSINK_API_TOKEN\" $BUGSINK_URL_CONTAINER/api/canonical/0/",
+      "reachable": true,
+      "details": {
+        "endpoint": "$BUGSINK_URL_CONTAINER/api/canonical/0/",
+        "projectDsnVar": "BUGSINK_DSN_<PROJECT>"
+      }
     }
   ],
   "enrollmentTarget": "/home/lucas/claude-code-magento-agents",
@@ -210,7 +257,7 @@ List each created / modified / removed file with a one-line summary. Include rea
   - `--no-overwrite` → skip diff prompts; leave existing playbook files untouched if they differ.
   - `--migrate-only` → only run the legacy `pb-gitnexus:` fence migration step (step 3), don't install or probe anything.
   - `--enable=<name>[,<name>]` → enroll the named pb-hcf bundled agent(s) into HCF's hook pipeline (see step 4 for full semantics and target-directory resolution).
-  - `--enable-all` → shorthand for enrolling all 10 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,post-plan-manual-test-plan,pre-implementation-incident-recall,gitnexus-reviewer,graphiti-reviewer,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
+  - `--enable-all` → shorthand for enrolling all 14 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-manual-test-plan,pre-implementation-incident-recall,issue-sentinel,gitnexus-reviewer,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,pipeline-audit`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
   - `--target=<host-path>` → override the auto-detected enrollment target directory. Useful for non-ddev projects or per-project enrollment overrides. Path must exist and be writable from host.
 
 ## Completion Output

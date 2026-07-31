@@ -1,6 +1,6 @@
 # Task 004: pipeline-audit agent
 
-**Status**: pending
+**Status**: completed
 **Depends on**: none
 **Retry count**: 0
 
@@ -17,12 +17,12 @@ New enrollable agent agents/pipeline-audit.md: after orchestration completes, pr
 - Reporting: post via chatroom MCP thread to host when available (subject "pipeline-audit <plan> <verdict>"), else write _pipeline_audit.md in plan dir; never hard-fail when chatroom absent
 
 ## Requirements (Test Descriptions)
-- [ ] `it ships DORMANT with no phase/order/mode in source frontmatter and documents intended post-commit order-90 single enrollment in the body prose`
-- [ ] `it derives the expected-agent list from wires.json enrollments not from hardcoded names`
-- [ ] `it maps each expected agent to a concrete evidence artefact path via a documented agent-to-artefact map`
-- [ ] `it evidences inline-only reviewers (no plan-dir file) via commit trailer/verdict log rather than false-FAILing them`
-- [ ] `it returns FAIL when any enrolled agent lacks evidence`
-- [ ] `it degrades to _pipeline_audit.md file when chatroom MCP is unavailable`
+- [x] `it ships DORMANT with no phase/order/mode in source frontmatter and documents intended post-commit order-90 single enrollment in the body prose` — agents/pipeline-audit.md frontmatter has name/description/model/tools only; body states "phase: post-commit, order: 90, mode: single" intended enrollment.
+- [x] `it derives the expected-agent list from wires.json enrollments not from hardcoded names` — Step 1 reads `.claude/wires.json` `.enrollments[]` via jq; explicit "never assume a fixed agent set... do not hardcode agent names" statement.
+- [x] `it maps each expected agent to a concrete evidence artefact path via a documented agent-to-artefact map` — Step 2 table (agents/pipeline-audit.md) covers devils-advocate, pre-mortem, post-plan-manual-test-plan, mutation-tester, issue-sentinel, pre-implementation-incident-recall.
+- [x] `it evidences inline-only reviewers (no plan-dir file) via commit trailer/verdict log rather than false-FAILing them` — Step 3 names gitnexus-reviewer, graphiti-reviewer, security-quorum, pre-commit-adversarial-pass, standards-enforcer; checks commit trailer then verdict log before concluding NO-EVIDENCE.
+- [x] `it returns FAIL when any enrolled agent lacks evidence` — Step 4: "Zero false-PASS: absence of evidence = FAIL" verbatim hard rule; any NO-EVIDENCE row forces STATUS: FAIL.
+- [x] `it degrades to _pipeline_audit.md file when chatroom MCP is unavailable` — Step 5 writes identical subject+body to `.claude/plans/<plan-name>/_pipeline_audit.md` when chatroom tools absent/unreachable/no open thread; "never hard-fail when chatroom is absent or unreachable" stated.
 
 ## Acceptance Criteria
 - Zero false-PASS: absence of evidence = FAIL, stated in instructions verbatim. Zero false-FAIL: an agent that fired but writes no plan-dir file is evidenced via its documented fallback, not reported as a silent skip.

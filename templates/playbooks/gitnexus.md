@@ -14,6 +14,7 @@ This playbook is NOT the authority for (defer to sibling playbooks):
 - **What was discussed / decided / planned about a piece of code** → `graphiti.md` (intent lives there, not in the AST).
 - **Security audit / vulnerability assessment** → `security.md` (when wired).
 - **End-to-end test design / coverage** → `playwright.md` / `testing.md` (when wired).
+- **What actually resolves / fires at runtime in the live env** → `bricklayer.md` (when wired) — GitNexus reads a possibly-stale static snapshot and cannot see env-specific module enablement or config; on a resolution disagreement, trust bricklayer.
 
 When a question could be answered by GitNexus OR a sibling playbook's tool, reach for both. Cite the tool that produced the evidence. GitNexus is authoritative when the question is structural; defer to others when the question is intent or risk.
 

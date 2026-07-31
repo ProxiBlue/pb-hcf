@@ -1,6 +1,6 @@
 # Task 006: Constitution template + pre-flight-check injection
 
-**Status**: pending
+**Status**: completed
 **Depends on**: none
 **Retry count**: 0
 
@@ -15,10 +15,10 @@ Ship templates/constitution.md (immutable project invariants); have pre-flight-c
 - Wire: install templates/constitution.md to .claude/constitution.md when absent (mention in SKILL.md — this is a wire SKILL.md edit; touch ONLY the actions/install section, use an anchored Edit, re-read the file first since tasks 002/008 may have edited other sections). Do NOT overwrite an existing constitution.
 
 ## Requirements (Test Descriptions)
-- [ ] `it ships templates/constitution.md with placeholder sections for branch rules vendor blocklist and verification checklist`
-- [ ] `it extends pre-flight-check to WARN not BLOCK when constitution is missing and does NOT attempt a plan-dir copy at pre-plan`
-- [ ] `it extends pre-implementation-incident-recall to copy the constitution into the plan dir as _constitution.md`
-- [ ] `it documents wire installing the template without overwriting an existing constitution`
+- [x] `it ships templates/constitution.md with placeholder sections for branch rules vendor blocklist and verification checklist` — implemented at `templates/constitution.md` (## Branch rules, ## Vendor blocklist, ## Verification checklist, plus Never-edit vendor/core and Testing scope rules)
+- [x] `it extends pre-flight-check to WARN not BLOCK when constitution is missing and does NOT attempt a plan-dir copy at pre-plan` — implemented as "Constitution check" paragraph in Step 1 of `agents/pre-flight-check.md`
+- [x] `it extends pre-implementation-incident-recall to copy the constitution into the plan dir as _constitution.md` — implemented as new "Step 0 — Constitution copy" in `agents/pre-implementation-incident-recall.md`, runs before the graphiti-reachability check so it's not skipped when graphiti is down
+- [x] `it documents wire installing the template without overwriting an existing constitution` — implemented as clearly-delimited `<!-- pb-hcf:constitution-install:start/end -->` block (new "1a." action) in `skills/wire/SKILL.md`, inserted right after the existing "1. Install each playbook" section
 
 ## Acceptance Criteria
 - Injection is copy-based (no @-mount) so plan dirs stay self-contained for workers, and happens at pre-implementation when the plan dir provably exists — never at pre-plan.

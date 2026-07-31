@@ -1,0 +1,43 @@
+{
+    // pb-hcf mutation-tester template. Run once per plan (see README) — Infection re-runs the
+    // full suite once per mutant, so it is expensive; never wire this to run per-batch or per-task.
+    "$schema": "vendor/infection/infection/resources/schema.json",
+    // Magento bootstrap is slow relative to a plain unit test; the default 10s timeout produces
+    // false-positive "timed out" mutants under load. 30s gives the suite room to boot cleanly.
+    "timeout": 30,
+    "source": {
+        "directories": [
+            "app/code/<Vendor>"
+        ],
+        "excludes": [
+            "*/Test/*",
+            "*/vendor/*",
+            "*/generated/*"
+        ]
+    },
+    "logs": {
+        // human-readable surviving-mutant list; consumed for the PUSHBACK verdict body
+        "text": "var/infection/infection.log",
+        // MSI / covered-MSI numbers; consumed for the min-MSI gate
+        "summary": "var/infection/summary.log",
+        // machine-readable per-mutant results (file, line, mutatorName, detectionStatus);
+        // this is what mutation-tester.md parses to build file:line + mutator PUSHBACK entries
+        "json": "var/infection/infection.json"
+    },
+    "mutators": {
+        // full default mutator set; narrow with "mutators": {"<Name>": {"ignore": [...]}} per project
+        // only if runtime becomes prohibitive on a large module
+        "@default": true
+    },
+    // documented default floor (see pb-hcf task 005 context) — mutation-tester returns PUSHBACK
+    // when the achieved MSI drops below this. Raise per project; never lower silently.
+    "minMsi": 60,
+    // stricter floor scoped to PHPUnit-covered code only; catches tests that execute a line
+    // but assert nothing meaningful about its behaviour (the coverage-gaming case this exists to counter)
+    "minCoveredMsi": 75,
+    "testFramework": "phpunit",
+    "phpUnit": {
+        // point at the project's actual phpunit.xml.dist location before running
+        "configDir": "dev/tests/unit"
+    }
+}

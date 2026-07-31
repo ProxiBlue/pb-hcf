@@ -1,6 +1,6 @@
 # Task 001: Bricklayer playbook template + gitnexus cross-ref
 
-**Status**: pending
+**Status**: completed
 **Depends on**: none
 **Retry count**: 0
 
@@ -14,11 +14,11 @@ Seed the locally-authored pps bricklayer playbook as a portable pb-hcf template 
 - Patterns: existing templates/playbooks/*.md declare "Authority scope" first
 
 ## Requirements (Test Descriptions)
-- [ ] `it ships templates/playbooks/bricklayer.md with Authority scope section first`
-- [ ] `it contains the gitnexus-vs-bricklayer arbitration table with trust-bricklayer-on-disagreement rule`
-- [ ] `it contains the reachability check (composer require fallback) section`
-- [ ] `it contains zero pps-specific strings (grep -ci 'pps\|pvcpipesupplies\|uptactics' = 0)`
-- [ ] `it adds bricklayer cross-reference to templates/playbooks/gitnexus.md`
+- [x] `it ships templates/playbooks/bricklayer.md with Authority scope section first` — first `## ` heading is "Authority scope"
+- [x] `it contains the gitnexus-vs-bricklayer arbitration table with trust-bricklayer-on-disagreement rule` — `### Bricklayer vs GitNexus — arbitration` table + "trust bricklayer" line
+- [x] `it contains the reachability check (composer require fallback) section` — `## Reachability — check before use` with `composer require --dev inchoo/magento-bricklayer` fallback
+- [x] `it contains zero pps-specific strings (grep -ci 'pps\|pvcpipesupplies\|uptactics' = 0)` — source file at /home/lucas/workspace/uptactics/pvcpipesupplies/.claude/bricklayer.md was already generic (0 hits); copied verbatim aside from removing the one pps-specific wrapper-path mention
+- [x] `it adds bricklayer cross-reference to templates/playbooks/gitnexus.md` — added bricklayer.md bullet to gitnexus.md's "NOT the authority for" list with trust-bricklayer-on-disagreement note
 
 ## Acceptance Criteria
 - Both templates read standalone; wire can copy bricklayer.md to any Magento project unchanged

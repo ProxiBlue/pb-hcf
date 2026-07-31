@@ -105,7 +105,7 @@ while IFS= read -r f; do
   phases+=("$phase")
   orders+=("${order:-100}")  # HCF default
   modes+=("${mode:-single}")
-done < <(ls "$TARGET"/*.md 2>/dev/null | sort)
+done < <(find "$TARGET" -maxdepth 1 -name '*.md' 2>/dev/null | sort)
 
 ALL_HOOKS="pre-plan post-plan pre-implementation pre-batch post-batch post-implementation pre-commit post-commit"
 HOOKS_TO_PRINT=${HOOK_FILTER:-$ALL_HOOKS}

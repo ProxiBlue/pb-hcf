@@ -20,4 +20,4 @@ Extend skills/wire/SKILL.md so wiring detects bricklayer (vendor/bin/bricklayer 
 - [x] `it installs templates/playbooks/bricklayer.md only when probe succeeds` — added an "Exception" paragraph under Actions step 1 (Install each playbook) gating the `.claude/bricklayer.md` copy on `reachable: true`; all other playbooks stay unconditional.
 
 ## Acceptance Criteria
-- Wire SKILL.md instructions unambiguous for an executing agent; consistent with existing gitnexus/graphiti probe prose
+- Wire SKILL.md instructions unambiguous for an executing agent; consistent with existing codegraph/graphiti probe prose

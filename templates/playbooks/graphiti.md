@@ -11,7 +11,7 @@ This playbook is the source of truth for:
 - **Vendor / client / domain knowledge** captured via ingest channels.
 
 This playbook is NOT the authority for (defer to sibling playbooks):
-- **Code structure / callers / impact** → `gitnexus.md` (GitNexus is authoritative for current code reach).
+- **Code structure / callers / impact** → `codegraph.md` (pb-codegraph is authoritative for current code reach).
 - **Security audit / OWASP / vulnerability assessment** → `security.md` (when wired).
 - **End-to-end test design / coverage** → `playwright.md` / `testing.md` (when wired).
 
@@ -41,7 +41,7 @@ curl -sS -o /dev/null -w 'HTTP %{http_code}\n' -m 3 http://host.docker.internal:
 
 Expect `307` (the server redirects `/mcp/` → `/mcp` — that's the healthy response, NOT a failure). If unreachable, call `mcp__graphiti__get_status` once for a definitive answer.
 
-If the server is down, **do not silently fall back**. State explicitly that graphiti is unreachable and that the analysis lacks discussion / decision context. Suggest the user check `docker logs --since 5m graphiti-mcp` and `docker logs graphiti-neo4j` (see the graphiti-fleet stack's README for the docker-compose location). Proceed with code-only analysis (gitnexus + grep) but flag the gap.
+If the server is down, **do not silently fall back**. State explicitly that graphiti is unreachable and that the analysis lacks discussion / decision context. Suggest the user check `docker logs --since 5m graphiti-mcp` and `docker logs graphiti-neo4j` (see the graphiti-fleet stack's README for the docker-compose location). Proceed with code-only analysis (codegraph + grep) but flag the gap.
 
 ## Group model — query both project AND fleet
 
@@ -113,7 +113,7 @@ Check the planned approach against `search_memory_facts(query="<planned approach
 
 ## Devil's Advocate playbook (HCF plan review)
 
-When devils-advocate reviews a plan, in addition to its existing gitnexus-aware checks, query graphiti for:
+When devils-advocate reviews a plan, in addition to its existing codegraph-aware checks, query graphiti for:
 
 1. **Adjacent planned work that may conflict or synergise** — `search_memory_facts(group_ids=[<project>, "fleet"], query="<plan title + key nouns>")`. Surface deferred features in the same domain. If the current plan should integrate with one, flag as **Important**; if it would block one, flag as **Critical**.
 2. **Past incidents this plan might repeat** — `search_nodes(entity_types=["Incident"], query="<plan domain>")`. If a prior incident's root cause matches the plan's approach, flag as **Critical** with the incident citation.
@@ -163,7 +163,7 @@ Useful for filtering: *"only show me decisions that came from email discussions"
 
 ## When NOT to use graphiti
 
-- **Code structure questions** — "who calls Quote::collectTotals" → use `mcp__gitnexus-mageos__impact`, not graphiti. Graphiti has Component nodes but they're noise-prone (NPM packages, file paths). GitNexus is the authoritative structural index.
+- **Code structure questions** — "who calls Quote::collectTotals" → use `mcp__pb-codegraph__impact`, not graphiti. Graphiti has Component nodes but they're noise-prone (NPM packages, file paths). pb-codegraph is the authoritative structural index.
 - **Current file state** — graphiti's facts are point-in-time; the source file may have moved on. Trust the source for current code; trust graphiti for "what was discussed when".
 - **Pure documentation lookups** — read the doc directly. Graphiti recall is for "what's our institutional memory on this" not "what does this README say".
 - **High-frequency in-loop queries** — searches are cheap but not free; don't call graphiti from inside a per-file-edit loop. Hoist queries to task-boundary level.

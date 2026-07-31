@@ -13,14 +13,14 @@ components themselves:
 
   * HCF (Hyper-Charged Framework for Claude Code)
     https://github.com/markshust/hcf
-    pb-hcf does not modify HCF source files. Its agents (gitnexus-reviewer)
+    pb-hcf does not modify HCF source files. Its agents (codegraph-reviewer)
     and playbooks complement HCF's existing flow via context-based wiring
     (CLAUDE.md fenced sections) and pipeline.md post-implementation slots.
 
-  * GitNexus (mage-os-gitnexus or compatible)
-    https://github.com/ProxiBlue/mage-os-gitnexus
-    pb-hcf's gitnexus-reviewer agent calls the gitnexus MCP server but
-    does not bundle its source.
+  * pb-codegraph
+    https://github.com/ProxiBlue/pb-codegraph
+    pb-hcf's codegraph-reviewer agent calls the pb-codegraph MCP server
+    but does not bundle its source.
 
 The above components are run as independent processes / external plugins.
 No source code from those components is bundled in this repository.

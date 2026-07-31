@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed (post-0.5.0, unreleased)
+
+- **Code-graph backend swap: the legacy licensed code-graph tool → pb-codegraph (native).** The
+  fleet code graph now runs on pb-codegraph (https://github.com/ProxiBlue/pb-codegraph). All
+  references to the previous licensed tool are purged from this repo:
+  - MCP tool names: `mcp__<legacy-server>__{list_repos,find_symbol,impact,context,query}` →
+    `mcp__pb-codegraph__*` (same five tool names, new server id `pb-codegraph`) across every
+    agent's `tools:` frontmatter and prose.
+  - Agent rename: the code-graph reviewer (formerly named after the legacy tool) →
+    **`codegraph-reviewer`** (frontmatter `name:`, title, all cross-references in wire SKILL,
+    README, pipeline-audit, mutation-tester, post-commit-build-summary, security playbook,
+    graphiti-reviewer). Enrollment semantics unchanged (`post-implementation`, order 30, mode
+    single).
+  - Playbook rename: the code-graph playbook template (formerly named after the legacy tool) →
+    **`templates/playbooks/codegraph.md`** (installs as `.claude/codegraph.md`); authority scope
+    and the bricklayer arbitration cross-reference preserved.
+  - Liveness probe: the old `curl :4747` HTTP check → **`pb-codegraph health --registry
+    "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/registry.json}"`** exit-0 (`status: "green"`)
+    check, in `pre-flight-check`, `codegraph-reviewer`, the security agents, and wire's probe
+    table / `wires.json` example.
+  - NOTICE / plugin.json / marketplace.json updated to reference pb-codegraph.
+  - Historical entries below were reworded in place to the new names (rename-only; no
+    behavioral history rewritten).
+
 ## [0.5.0] — 2026-07-31
 
 **Verification spine.** Four new enrollable agents, a new `post-batch` hook point, and a batch of
@@ -42,7 +68,7 @@ agents at 7 hook points** (`pre-plan`, `post-plan`, `pre-implementation`, `post-
   `inchoo/magento-bricklayer` MCP (DI preferences, merged plugin chains, live EAV, actual DB
   schema, error triage). Probe-gated install: `/pb-hcf:wire` only copies it when
   `vendor/bin/bricklayer` is detected on the target project; unreachable projects get a
-  `reachable: false` + install-hint entry in `wires.json` instead. `gitnexus.md` gains a
+  `reachable: false` + install-hint entry in `wires.json` instead. `codegraph.md` gains a
   cross-reference: on a resolution disagreement between the static graph and the live app, trust
   bricklayer.
 - **`templates/constitution.md`** — immutable project-invariants template. `/pb-hcf:wire` installs
@@ -103,8 +129,8 @@ agents at 7 hook points** (`pre-plan`, `post-plan`, `pre-implementation`, `post-
   5): judges `scripts/rector-check.sh`'s contested transforms — public method signature changes,
   dead-code removal, and constructor changes near plugin/observer/`di.xml` wiring rector's own
   skip-list doesn't cover — citing file:line + the specific Magento mechanism at risk.
-- **`templates/playbooks/gitnexus.md`** — adds a defer-to-bricklayer line for "what actually
-  resolves at runtime" questions, since GitNexus's static snapshot can't see env-specific module
+- **`templates/playbooks/codegraph.md`** — adds a defer-to-bricklayer line for "what actually
+  resolves at runtime" questions, since pb-codegraph's static snapshot can't see env-specific module
   enablement.
 - **`services/bugsink/README.md`** — documents the wire integration (probe semantics, DSN-presence
   check) and points at `docs/release-tagging.md` for the `HCF_RELEASE` convention.
@@ -123,7 +149,7 @@ agents at 7 hook points** (`pre-plan`, `post-plan`, `pre-implementation`, `post-
 
 Third revision on the reviewer-tier question. Reverts v0.4.8's fable pins — reviewers inherit again — but this time the rule is refined to reflect the intent: **operator-controlled review tier via `/model` swap for outcome A/B testing**.
 
-- **→ inherit (was fable in v0.4.8):** `gitnexus-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. Same set as v0.4.7 — `model:` line removed from frontmatter.
+- **→ inherit (was fable in v0.4.8):** `codegraph-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. Same set as v0.4.7 — `model:` line removed from frontmatter.
 - **HCF-upstream (local drift):** `hcf/agents/devils-advocate.md` also unpinned (was fable in v0.4.8).
 
 **Intent:** run session=fable for a high-stakes plan → reviews use fable. Drop session=opus for cost-sensitive iteration → reviews use opus. Drop session=sonnet to A/B test outcomes at a lower tier without any file edits. Reviewers dial with the session.
@@ -134,7 +160,7 @@ Third revision on the reviewer-tier question. Reverts v0.4.8's fable pins — re
 
 Re-pin review agents to `model: fable`. Rule refined: reviewers are non-negotiable, pin explicitly to the ceiling — do NOT rely on session-inheritance since harness precedence for Task-dispatched subagents (parent-caller vs top-level session) is not guaranteed to bubble up.
 
-- **→ fable (7 review agents):** `gitnexus-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. Same set as v0.4.6; reverts the v0.4.7 unpinning.
+- **→ fable (7 review agents):** `codegraph-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. Same set as v0.4.6; reverts the v0.4.7 unpinning.
 - **`~/claude-skills-central/rules/model-tiering.md`** updated: "inherit for verify/security/final-judge" clause removed; replaced with "**fable (or strongest available)**: verify / security / final-judge / review-panel stages. Pin explicitly — do NOT rely on inheritance from the calling skill or session." Reviewers get their own row; `inherit` is now reserved for orchestration + hard-design skills.
 - **HCF-upstream (local drift):** `hcf/agents/devils-advocate.md` also re-pinned to `model: fable`. Will re-drift on `plugin update hcf@hcf`.
 
@@ -144,7 +170,7 @@ Re-pin review agents to `model: fable`. Rule refined: reviewers are non-negotiab
 
 Align with the new fleet model-tiering rule: verify/security/final-judge stages **inherit** from session, no explicit override. Session ceiling controls their tier — fable when the operator is on fable, opus when on opus, etc.
 
-- **inherit (was fable):** `gitnexus-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. The `model:` line is removed from each frontmatter — Task dispatch inherits the parent session model.
+- **inherit (was fable):** `codegraph-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. The `model:` line is removed from each frontmatter — Task dispatch inherits the parent session model.
 
 **Why the revert:** the `~/claude-skills-central/rules/model-tiering.md` rule (added 2026-07-05, auto-loaded fleet-wide) explicitly states that verify/security/final-judge stages should NOT carry a model override — the operator's session tier is the ceiling. v0.4.6 pinned these to `fable` which zeroed that flexibility (opus-session runs would still burn fable on reviews). Per the rule, cheap writers + expensive skeptics = skeptics inherit the current expensive tier, they don't hard-code one.
 
@@ -156,7 +182,7 @@ Align with the new fleet model-tiering rule: verify/security/final-judge stages 
 
 Fable-era model targeting: review agents PROMOTED to fable, non-review paths held at sonnet/haiku. Assumes the operator runs the session on fable as the main orchestrator.
 
-- **→ fable (7 review agents):** `gitnexus-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. Deep judgment on impact analysis, historical conflict detection, security consensus, and last-chance adversarial pass — fable's reasoning depth pays back the per-call cost when it catches issues that opus would miss.
+- **→ fable (7 review agents):** `codegraph-reviewer`, `graphiti-reviewer`, `security-quorum`, `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor`, `pre-commit-adversarial-pass`. Deep judgment on impact analysis, historical conflict detection, security consensus, and last-chance adversarial pass — fable's reasoning depth pays back the per-call cost when it catches issues that opus would miss.
 - **`skills/wire/SKILL.md`** — explicit `model: sonnet` added so `/pb-hcf:wire` no longer inherits the session model (previously would run on fable when the operator was in fable mode — wasted spend on a playbook installer).
 
 **HCF-upstream review agents NOT touched:** `devils-advocate` and `standards-enforcer` remain at opus. Local override would drift on the next `plugin update hcf@hcf`. Recommend upstream PR: promote `devils-advocate` to fable (post-plan critique is exactly the review depth fable is worth); leave `standards-enforcer` at opus (structured rule check, doesn't need fable).
@@ -169,7 +195,7 @@ Model tier optimization across the bundled agents — sonnet/haiku where reasoni
 
 - **→ haiku (2):** `pre-flight-check` (yes/no artefact + branch + probe check, deterministic), `post-commit-verify-handoff` (prints an ASCII box with a slash command, purely mechanical).
 - **→ sonnet (4):** `pre-plan-graphiti-recall`, `post-plan-manual-test-plan`, `pre-implementation-incident-recall`, `post-commit-build-summary` — structured retrieval + templated output; sonnet handles cleanly and `pre-implementation-incident-recall` fires per-task so the cost multiplier compounds.
-- **opus kept (7):** `gitnexus-reviewer`, `graphiti-reviewer`, `security-quorum`, the 3 security specialists (`security-static-analyst` / `security-adversarial-tester` / `security-defensive-auditor`), `pre-commit-adversarial-pass`. All judgment-heavy — dropping tier here loses signal.
+- **opus kept (7):** `codegraph-reviewer`, `graphiti-reviewer`, `security-quorum`, the 3 security specialists (`security-static-analyst` / `security-adversarial-tester` / `security-defensive-auditor`), `pre-commit-adversarial-pass`. All judgment-heavy — dropping tier here loses signal.
 
 **Not touched (upstream HCF):** `devils-advocate` (opus, kept), `standards-enforcer` (opus, could drop to sonnet upstream), `tdd-worker` (sonnet, kept). HCF is `markshust/hcf`; local edits would drift on plugin update — recommend the standards-enforcer drop go via upstream PR instead.
 

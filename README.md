@@ -37,8 +37,8 @@ Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based h
 | `post-plan-manual-test-plan` | `post-plan` | 50 | single | After `devils-advocate` (HCF bundled, order 10), mines `_plan.md` + per-task Requirements, derives user stories, posts a phased GH ticket comment (via `gh-comment-hidden.sh` helper — caveman + minimised as off-topic per fleet rule), writes `.claude/test-plans/<ticket>.yml` per [SCHEMA.md](../../proxiblue-skills/skills/manual-test-plan/SCHEMA.md). |
 | `pre-implementation-incident-recall` | `pre-implementation` | 10 | single | For each `_task-NNN.md`, identifies the touched module/area, searches Graphiti for prior incidents, PREPENDS a `## Prior incidents in this area` section to the task file. Also copies `.claude/constitution.md` into the plan dir as `_constitution.md` (once, idempotently) — the first point in the pipeline where the plan dir provably exists. tdd-workers read both during their normal task ingestion — institutional memory + project invariants arrive in worker context automatically. |
 | `issue-sentinel` | `post-batch` | 30 | single | Queries the central Bugsink error tracker for issues `first_seen` since this batch started (project + `HCF_RELEASE` filtered), triages via bricklayer `diagnose-error` where wired, returns PASS or structured PUSHBACK with `friendly_id` + stacktrace excerpt + suspected file:line. Falls back to a thin `var/report` + cron-stderr scan when Bugsink is unreachable. Writes a `_issue_sentinel.md` verdict to the plan dir every batch. First agent enrolled at pb-hcf's new `post-batch` hook point. |
-| `gitnexus-reviewer` | `post-implementation` | 30 | single | Diff-impact review via GitNexus code graph. Surfaces indirect callers grep misses (Magento plugins, observers wired in `events.xml`, DI preferences, layout overrides). Returns PASS / PUSHBACK with `mcp__gitnexus-mageos__impact` citations. |
-| `graphiti-reviewer` | `post-implementation` | 40 | single | Diff-vs-knowledge-graph review — historical counterpart of gitnexus-reviewer. Catches: change that conflicts with a prior decision, change that recreates a fixed incident pattern, new dependency that violates a vendor verdict, change overlapping planned-but-not-built work. Returns PASS / PUSHBACK with cited graphiti episode UUIDs. |
+| `codegraph-reviewer` | `post-implementation` | 30 | single | Diff-impact review via pb-codegraph code graph. Surfaces indirect callers grep misses (Magento plugins, observers wired in `events.xml`, DI preferences, layout overrides). Returns PASS / PUSHBACK with `mcp__pb-codegraph__impact` citations. |
+| `graphiti-reviewer` | `post-implementation` | 40 | single | Diff-vs-knowledge-graph review — historical counterpart of codegraph-reviewer. Catches: change that conflicts with a prior decision, change that recreates a fixed incident pattern, new dependency that violates a vendor verdict, change overlapping planned-but-not-built work. Returns PASS / PUSHBACK with cited graphiti episode UUIDs. |
 | `mutation-tester` | `post-implementation` | 45 | single | Tests-that-test-the-tests. Runs Infection mutation testing on the plan's changed PHP files only (`app/code/**`, excluding generated/vendor/fixtures), gates on a min-MSI threshold, returns PASS or PUSHBACK listing each surviving mutant (file:line + mutator) so tdd-workers strengthen assertions instead of gaming coverage. Writes a `_mutation_tester.md` verdict every run. Runs once on the whole plan diff, after `graphiti-reviewer` (40), before `standards-enforcer` (50). |
 | `security-quorum` | `post-implementation` | 70 | single | 3-agent 2-of-3 security consensus orchestrator. Spawns the 3 specialists in parallel, runs 2-round consensus, synthesises a single PASS / FAIL / NEEDS-REVIEW verdict, writes one verdict episode to graphiti. ~$0.30–1.00 per run. |
 | `pre-commit-adversarial-pass` | `pre-commit` | 10 | single | One last adversarial-tester pass on the staged diff AFTER the full test suite passes, BEFORE the commit lands. Looks for last-minute regressions, exploit patterns, attack chains, dependency CVEs in version bumps, and judges `scripts/rector-check.sh`'s contested transforms (public signature changes, dead-code removal near DI/observer wiring, constructor changes) against Magento-wiring risk. Returns PASS or DEFER (advisory — does NOT block commit; surfaces to the build-summary). Read-only. |
@@ -50,7 +50,7 @@ Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based h
 
 | Name | Role within the trio |
 |---|---|
-| `security-static-analyst` | Reads code, traces data flows from sources to sinks. Cites file:line. Uses gitnexus impact + graphiti incident recall. |
+| `security-static-analyst` | Reads code, traces data flows from sources to sinks. Cites file:line. Uses codegraph impact + graphiti incident recall. |
 | `security-adversarial-tester` | Hostile-actor angle. Builds exploit payloads + attack chains. Online CVE lookups (NVD, GitHub Advisory DB, OSV). |
 | `security-defensive-auditor` | Pass-then-verify discipline. Walks each framework-provided defense (Magento ACL, form_key, escapeHtml, CSP, crypto) and confirms it fires correctly. |
 
@@ -58,7 +58,7 @@ Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based h
 
 | Name | Authority scope |
 |---|---|
-| `templates/playbooks/gitnexus.md` | Code-structure / caller / impact questions (GitNexus MCP usage). |
+| `templates/playbooks/codegraph.md` | Code-structure / caller / impact questions (pb-codegraph MCP usage). |
 | `templates/playbooks/graphiti.md` | Discussion / decision / intent / planned-but-not-built questions (Graphiti MCP usage + 5-step search discipline). |
 | `templates/playbooks/security.md` | OWASP / vulnerability assessment + 3-specialist quorum 2-of-3 rule. |
 | `templates/playbooks/bricklayer.md` | Runtime-resolved truth (DI preferences, merged plugin chains, live EAV, actual DB schema, error triage) via the `inchoo/magento-bricklayer` MCP. Probe-gated install — only copied when `vendor/bin/bricklayer` is detected (see wire's bricklayer probe). |
@@ -86,10 +86,10 @@ HCF v2.0.0 (released 2026-06-26) replaced the central `.claude/pipeline.md` regi
 
 ```yaml
 ---
-name: gitnexus-reviewer
+name: codegraph-reviewer
 description: "..."
 model: opus
-tools: Read, Glob, Grep, Bash, mcp__gitnexus-mageos__impact
+tools: Read, Glob, Grep, Bash, mcp__pb-codegraph__impact
 # --- hook enrollment ---
 phase: post-implementation   # one of 8 hooks (see table below)
 order: 30                    # lower runs first; default 100
@@ -127,7 +127,7 @@ pb-hcf does **not** modify HCF's source. Two integration surfaces:
 
 | Surface | What pb-hcf writes | Where it goes | When |
 |---|---|---|---|
-| Playbook files | Domain rule docs (gitnexus, graphiti, security, …) referenced from a fenced section in `.claude/CLAUDE.md` | `.claude/<playbook>.md` (project-local, host-RW) | Every `/pb-hcf:wire` run — playbooks are passive context, no opt-in needed |
+| Playbook files | Domain rule docs (codegraph, graphiti, security, …) referenced from a fenced section in `.claude/CLAUDE.md` | `.claude/<playbook>.md` (project-local, host-RW) | Every `/pb-hcf:wire` run — playbooks are passive context, no opt-in needed |
 | Agent enrollments | Plugin agent body with `phase` / `order` / `mode` stamped into frontmatter | **Resolved target directory** (auto-detected from `.ddev/docker-compose*.yaml` mount; falls back to project-local `.claude/agents/`; override via `--target=<path>`) | Only when `--enable=<name>[,<name>]` (or `--enable-all`) is passed to `/pb-hcf:wire` |
 
 **Target-directory resolution respects RO-mount fleet design.** Most ProxiBlue projects mount `~/claude-code-magento-agents/` RO at `/var/www/html/.claude/agents/` so containerized agents can't modify gatekept config. Wire auto-detects this mount, writes to the host-side source (`~/claude-code-magento-agents/`) where it IS writable, and HCF discovery in the container reads what landed there RO. Gatekeeping intact: only host can change enrollments.
@@ -149,8 +149,8 @@ Result: bundled agents live in the plugin without a `phase` (dormant in plugin s
 | `post-plan-manual-test-plan` | `post-plan` | `50` | `single` | After devils-advocate + pre-mortem finish (gives the reviewed plan to mine); higher order = runs later |
 | `pre-implementation-incident-recall` | `pre-implementation` | `10` | `single` | Once before first batch — pre-seeds every task file with relevant prior incidents, copies `.claude/constitution.md` into the plan dir |
 | `issue-sentinel` | `post-batch` | `30` | `single` | Once per batch, after results collected — asks Bugsink what fired at runtime that the test suite never observed |
-| `gitnexus-reviewer` | `post-implementation` | `30` | `single` | Structural-impact review FIRST — before style fixes and security audit |
-| `graphiti-reviewer` | `post-implementation` | `40` | `single` | Historical/decisional review SECOND — symmetric to gitnexus on the knowledge axis |
+| `codegraph-reviewer` | `post-implementation` | `30` | `single` | Structural-impact review FIRST — before style fixes and security audit |
+| `graphiti-reviewer` | `post-implementation` | `40` | `single` | Historical/decisional review SECOND — symmetric to codegraph on the knowledge axis |
 | `mutation-tester` | `post-implementation` | `45` | `single` | THIRD — tests-that-test-the-tests, after the structural/historical reviews but before standards-enforcer reformats anything |
 | (HCF) `standards-enforcer` | `post-implementation` | `50` | `batch` | HCF bundled — code-standards fixes; opt-in (HCF ships with phase commented) |
 | `security-quorum` | `post-implementation` | `70` | `single` | Security audit LAST at post-implementation, on the final diff including standards-enforcer fixes |
@@ -159,7 +159,7 @@ Result: bundled agents live in the plugin without a `phase` (dormant in plugin s
 | `post-commit-build-summary` | `post-commit` | `20` | `single` | Then prints the aggregated BUILD COMPLETE summary |
 | `pipeline-audit` | `post-commit` | `90` | `single` | LAST — tail of the pipeline, so every other agent's evidence artefact already exists on disk to audit for |
 
-To pick a different hook for an agent (e.g. per-batch cadence instead of per-plan for gitnexus-reviewer), edit the project's `.claude/agents/<name>.md` after wire — change `phase` to `post-batch`. The wire respects local edits on re-run (won't clobber a `phase` you've changed; warns instead).
+To pick a different hook for an agent (e.g. per-batch cadence instead of per-plan for codegraph-reviewer), edit the project's `.claude/agents/<name>.md` after wire — change `phase` to `post-batch`. The wire respects local edits on re-run (won't clobber a `phase` you've changed; warns instead).
 
 ### Why pipeline.md is dead in v2
 
@@ -169,7 +169,7 @@ HCF v2 actively gates `plan-create` and `plan-orchestrate` while `.claude/pipeli
 
 ## How HCF flows change with pb-hcf wires
 
-Vanilla HCF is a complete flow on its own. pb-hcf doesn't replace it — pb-hcf gives HCF's existing agents better tools (gitnexus + graphiti MCP context) and adds a security quorum at HCF's native `post-implementation` hook (enrolled via agent frontmatter; default off). HCF source files are not modified.
+Vanilla HCF is a complete flow on its own. pb-hcf doesn't replace it — pb-hcf gives HCF's existing agents better tools (codegraph + graphiti MCP context) and adds a security quorum at HCF's native `post-implementation` hook (enrolled via agent frontmatter; default off). HCF source files are not modified.
 
 The two side-by-side diagrams below cover the user-visible flow. Everything pb-hcf adds is annotated with `◄── pb-hcf`.
 
@@ -202,7 +202,7 @@ User: "build feature X"
         Single final commit
 ```
 
-Wired by default: `standards-enforcer` in post-implementation. That's it. No graphiti consultation, no gitnexus consultation, no security audit, no prior-decision recall.
+Wired by default: `standards-enforcer` in post-implementation. That's it. No graphiti consultation, no codegraph consultation, no security audit, no prior-decision recall.
 
 ### Adjusted process (pb-hcf v0.4.0 wired — 100% via HCF v2 hooks)
 
@@ -213,9 +213,9 @@ User runs /proxiblue-skills:workflow-onboard-project   ◄── ONE TIME per pr
   ├─ /hcf:project-setup → .claude/CLAUDE.md
   ├─ /pb-hcf-playwright-tdd:setup → .claude/testing.md
   └─ /pb-hcf:wire --enable-all   ◄── pb-hcf v0.4.0: enrolls ALL 10 bundled agents
-        ├─ Drops .claude/{gitnexus,graphiti,security}.md (playbooks)
+        ├─ Drops .claude/{codegraph,graphiti,security}.md (playbooks)
         ├─ Single fenced section in .claude/CLAUDE.md pointing to all playbooks
-        ├─ Runs reachability probes (gitnexus:4747, mcp__graphiti__get_status)
+        ├─ Runs reachability probes (pb-codegraph health, mcp__graphiti__get_status)
         ├─ For each of 10 bundled agents:
         │     copies $PLUGIN/agents/<name>.md → .claude/agents/<name>.md
         │     stamps phase / order / mode in frontmatter
@@ -270,8 +270,8 @@ User runs /hcf:plan-orchestrate <plan>   ◄── VANILLA — no wrapper skill 
   │   └─ post-batch hook (vanilla HCF — empty unless project enrolls more)
   │
   ├─ post-implementation hook (HCF v2 — runs ONCE at plan-end):
-  │   ├─ pb-hcf: gitnexus-reviewer (order 30)
-  │   │   └─ Structural impact of whole diff via GitNexus code graph
+  │   ├─ pb-hcf: codegraph-reviewer (order 30)
+  │   │   └─ Structural impact of whole diff via pb-codegraph code graph
   │   ├─ pb-hcf: graphiti-reviewer (order 40)
   │   │   └─ Historical/decisional impact of whole diff via Graphiti knowledge graph
   │   ├─ HCF: standards-enforcer (order 50 — opt-in via frontmatter)
@@ -322,11 +322,11 @@ ALWAYS-ON (per session, via pb-graphiti hooks):
 |---|---|---|---|
 | Onboard | Manual install per project | One workflow chains plugin installs + wire + setup | More automation, one entry point |
 | Pre-flight before plan | None | Loop `wires.json` registry, probe each playbook's MCP | Stop early if stack broken |
-| plan-create Phase 1 Discovery | Codebase glob + brainstorm | + graphiti recall for planned/discussed/prior-decisions + gitnexus impact | Foresight gap closed — plan considers future-intent |
-| plan-create Phase 6 devils-advocate | Grep-only review | + gitnexus indirect-caller chase + graphiti adjacent-work + security scope flag | Multi-source critique |
-| plan-orchestrate workers | grep + read | + gitnexus find_symbol/impact + graphiti incident recall | Workers consult institutional memory |
+| plan-create Phase 1 Discovery | Codebase glob + brainstorm | + graphiti recall for planned/discussed/prior-decisions + codegraph impact | Foresight gap closed — plan considers future-intent |
+| plan-create Phase 6 devils-advocate | Grep-only review | + codegraph indirect-caller chase + graphiti adjacent-work + security scope flag | Multi-source critique |
+| plan-orchestrate workers | grep + read | + codegraph find_symbol/impact + graphiti incident recall | Workers consult institutional memory |
 | plan-orchestrate worker tests | Full project suite per task | Targeted scoped tests per task (testing.md) | Avoids parallel-collision when project's testing.md is configured for it — see "Open concerns" |
-| plan-orchestrate post-implementation | standards-enforcer (dormant by default in HCF v2) | + gitnexus-reviewer (order 30) + security-quorum (order 70), both enrolled via `/pb-hcf:wire --enable=...` | Real security gate that scales |
+| plan-orchestrate post-implementation | standards-enforcer (dormant by default in HCF v2) | + codegraph-reviewer (order 30) + security-quorum (order 70), both enrolled via `/pb-hcf:wire --enable=...` | Real security gate that scales |
 | Test suite at plan-end | Full suite | Full suite (unchanged from vanilla) | — |
 | Commit | Single commit at plan-end | Single commit at plan-end | Unchanged |
 | Session lifecycle writes to graphiti | None | SessionStart recall + TaskCompleted / SubagentStop / SessionEnd consolidation | Long-term memory accumulates |
@@ -336,7 +336,7 @@ ALWAYS-ON (per session, via pb-graphiti hooks):
 | Capability | How |
 |---|---|
 | Foresight on plan creation (planned/discussed features influence current design) | graphiti search in plan-create Phase 1 |
-| Indirect-caller awareness in plan-review + workers | gitnexus impact via wire |
+| Indirect-caller awareness in plan-review + workers | codegraph impact via wire |
 | Prior-incident recall when implementing | graphiti search in tdd-worker per task |
 | Multi-source critique by devils-advocate | three playbooks consulted simultaneously |
 | Multi-agent security gate with quorum (2-of-3) | `security-quorum` agent enrolled at HCF `post-implementation` hook |
@@ -350,7 +350,7 @@ ALWAYS-ON (per session, via pb-graphiti hooks):
 
 These are real trade-offs the design accepts. Revisit when they bite in practice.
 
-**Per-task review granularity.** `gitnexus-reviewer` enrolls at HCF's `post-implementation` hook, which fires once at batch-end, not after every task. If a tdd-worker introduces a regression in task 3 of 5, the reviewer surfaces it only after task 5 finishes — slower feedback than a per-task gate would give. (HCF's `post-batch` hook fires per batch; if the per-batch cadence matters more than per-task, switch the agent's `phase` to `post-batch` in `.claude/agents/gitnexus-reviewer.md`.) The trade is that no HCF wrapping is needed; HCF source stays clean.
+**Per-task review granularity.** `codegraph-reviewer` enrolls at HCF's `post-implementation` hook, which fires once at batch-end, not after every task. If a tdd-worker introduces a regression in task 3 of 5, the reviewer surfaces it only after task 5 finishes — slower feedback than a per-task gate would give. (HCF's `post-batch` hook fires per batch; if the per-batch cadence matters more than per-task, switch the agent's `phase` to `post-batch` in `.claude/agents/codegraph-reviewer.md`.) The trade is that no HCF wrapping is needed; HCF source stays clean.
 
 **Parallel-test resource collision.** HCF defaults run the full project test suite at end of each `tdd-worker` task AND again in post-implementation. Under parallel worker dispatch this can collide on shared MariaDB rows, Redis cache, OpenSearch indexes, Playwright sessions, `var/` artefacts. Mitigation lives in each project's `.claude/testing.md` — scope test commands to targeted invocation (per-file / per-testsuite) rather than full-suite, so workers don't all hit the whole DB. Or run with `--max-parallel 1` if the project's HCF supports it.
 
@@ -426,7 +426,7 @@ Existing pb-hcf-wired projects fall into three states. Pick the matching recipe.
 [ -f .claude/pipeline.md ]   && echo "legacy pipeline.md PRESENT"   || echo "no pipeline.md"
 [ -f .claude/wires.json ]    && echo "pb-hcf wired"                 || echo "not wired"
 grep -l "pb-hcf:start"     .claude/CLAUDE.md 2>/dev/null && echo "pb-hcf fence present"
-grep -l "pb-gitnexus:start" .claude/CLAUDE.md 2>/dev/null && echo "legacy pb-gitnexus fence (will be auto-migrated)"
+grep -l "pb-git[n]exus:start" .claude/CLAUDE.md 2>/dev/null && echo "legacy code-graph wire fence (will be auto-migrated)"
 ls .claude/agents/*.md 2>/dev/null && echo "project-local agents exist"
 ```
 
@@ -444,7 +444,7 @@ ls .claude/agents/*.md 2>/dev/null && echo "project-local agents exist"
    ```
    /hcf:project-update
    ```
-   This already handles pb-hcf's `gitnexus-reviewer` / `security-quorum` correctly via HCF's discovery routine — they get copied into `.claude/agents/` if they were uncommented in pipeline.md.
+   This already handles pb-hcf's `codegraph-reviewer` / `security-quorum` correctly via HCF's discovery routine — they get copied into `.claude/agents/` if they were uncommented in pipeline.md.
 4. **Re-run wire** to refresh `wires.json` (now includes `enrollments[]`):
    ```
    /pb-hcf:wire
@@ -462,14 +462,14 @@ ls .claude/agents/*.md 2>/dev/null && echo "project-local agents exist"
 
 ```
 /plugin update pb-hcf@pb-hcf
-/pb-hcf:wire --enable=gitnexus-reviewer        # or --enable-all for Magento + security-sensitive
+/pb-hcf:wire --enable=codegraph-reviewer        # or --enable-all for Magento + security-sensitive
 ```
 
 ### State C — fresh project (no HCF, no pb-hcf)
 
 ```
 /hcf:project-setup
-/pb-hcf:wire --enable=gitnexus-reviewer        # add ,security-quorum or use --enable-all if needed
+/pb-hcf:wire --enable=codegraph-reviewer        # add ,security-quorum or use --enable-all if needed
 ```
 
 ### Verifying what HCF will actually run
@@ -507,7 +507,7 @@ Or trust the printed resolved-order line HCF logs at each hook firing.
 
 - **Never edits `pipeline.md`.** Migration is HCF's job (`/hcf:project-update`). If pipeline.md is present, wire halts. No exceptions.
 - **Never silently enrolls agents.** Even on an upgrade re-run, agents land in the enrollment target only via `--enable=<name>`. The exception is `/hcf:project-update`, which re-creates enrollments that were active in pipeline.md (so behaviour is preserved across the migration).
-- **Never overwrites an existing enrollment-target `<name>.md` with a different `phase`.** If you've intentionally moved `gitnexus-reviewer` to `post-batch`, re-running `--enable=gitnexus-reviewer` warns and leaves your edit alone.
+- **Never overwrites an existing enrollment-target `<name>.md` with a different `phase`.** If you've intentionally moved `codegraph-reviewer` to `post-batch`, re-running `--enable=codegraph-reviewer` warns and leaves your edit alone.
 - **Never writes to a non-writable target.** If the resolved target is owned by another user (typical for root-owned mount sources) or doesn't exist, wire aborts with the path and a suggested `chown` / `mkdir` fix — it does NOT escalate to sudo.
 - **Never touches non-pb-hcf content in a shared central target.** The `~/claude-code-magento-agents/` directory hosts more than just pb-hcf agents (e.g. the magento-agents library subdirs); wire only manages files matching pb-hcf bundled agent names. Other content is left alone.
 
@@ -515,14 +515,14 @@ Or trust the printed resolved-order line HCF logs at each hook firing.
 
 | Version | What landed |
 |---|---|
-| v0.1.0 | gitnexus-reviewer agent + gitnexus.md playbook + graphiti.md playbook + multi-playbook `wire` skill. |
+| v0.1.0 | codegraph-reviewer agent + codegraph.md playbook + graphiti.md playbook + multi-playbook `wire` skill. |
 | v0.2.0 | Security quorum: `security-quorum` orchestrator + 3 specialist agents + `security.md` playbook. 2-of-3 consensus, ~$0.30-1.00 per run. |
 | v0.3.0 | **BREAKING — aligned with HCF v2.0.0.** Wire no longer writes `.claude/pipeline.md` (that file blocks HCF planning in v2). Replaced with opt-in HCF v2 hook enrollment via agent frontmatter: `/pb-hcf:wire --enable=<name>[,<name>]` (or `--enable-all`) copies the named bundled agent to `.claude/agents/<name>.md` with `phase: post-implementation` + `order` + `mode` stamped. Wire halts if a legacy `pipeline.md` is present. `wires.json` gains `enrollments[]`. Graphiti playbook adds search-discipline guidance. |
-| v0.4.0 | **100% HCF v2 hook migration — `/proxiblue-skills:workflow-build-feature` made obsolete.** Ships **8 new agents** covering every step the wrapper used to orchestrate, each enrolled at the appropriate HCF v2 hook: `pre-flight-check` (pre-plan, order 5 — verifies onboarding + warns on protected branches `live`/`uat`/`main`/`master`), `pre-plan-graphiti-recall` (pre-plan, order 10 — historical context before Discovery), `post-plan-manual-test-plan` (post-plan, order 50 — derives + posts manual test plan + writes YAML), `pre-implementation-incident-recall` (pre-implementation, order 10 — per-task graphiti prior-incident lookup, prepends to task files), `graphiti-reviewer` (post-implementation, order 40 — historical/decisional diff review symmetric to gitnexus-reviewer), `pre-commit-adversarial-pass` (pre-commit, order 10 — last-chance adversarial sweep on staged diff, advisory only), `post-commit-verify-handoff` (post-commit, order 10 — unmissable fresh-thread handoff to /verify-feature), `post-commit-build-summary` (post-commit, order 20 — aggregated BUILD COMPLETE with READY/NOT-READY-TO-DEPLOY). Wire skill agent table expanded to 10 enrollable agents. `--enable-all` enrolls every bundled agent. `gitnexus-reviewer` body updated for HCF v2 post-implementation protocol (no more wrapper-era PLAN_NAME/TASK_NUMBER inputs). |
+| v0.4.0 | **100% HCF v2 hook migration — `/proxiblue-skills:workflow-build-feature` made obsolete.** Ships **8 new agents** covering every step the wrapper used to orchestrate, each enrolled at the appropriate HCF v2 hook: `pre-flight-check` (pre-plan, order 5 — verifies onboarding + warns on protected branches `live`/`uat`/`main`/`master`), `pre-plan-graphiti-recall` (pre-plan, order 10 — historical context before Discovery), `post-plan-manual-test-plan` (post-plan, order 50 — derives + posts manual test plan + writes YAML), `pre-implementation-incident-recall` (pre-implementation, order 10 — per-task graphiti prior-incident lookup, prepends to task files), `graphiti-reviewer` (post-implementation, order 40 — historical/decisional diff review symmetric to codegraph-reviewer), `pre-commit-adversarial-pass` (pre-commit, order 10 — last-chance adversarial sweep on staged diff, advisory only), `post-commit-verify-handoff` (post-commit, order 10 — unmissable fresh-thread handoff to /verify-feature), `post-commit-build-summary` (post-commit, order 20 — aggregated BUILD COMPLETE with READY/NOT-READY-TO-DEPLOY). Wire skill agent table expanded to 10 enrollable agents. `--enable-all` enrolls every bundled agent. `codegraph-reviewer` body updated for HCF v2 post-implementation protocol (no more wrapper-era PLAN_NAME/TASK_NUMBER inputs). |
 | v0.4.1 | **RO-mount-respecting enrollment target.** Wire's `--enable` no longer assumes project-local `.claude/agents/` is writable — for fleet-mounted projects (ProxiBlue ddev pattern with `~/claude-code-magento-agents:/var/www/html/.claude/agents:ro`) it would silently fail because the mount source is the actual write target. New target-resolution: `--target=<path>` flag → auto-detect from `.ddev/docker-compose*.yaml` mount source → project-local fallback. Wire writes from host to the resolved target (respecting RO-mount gatekeeping intent — container view stays read-only, only host can change enrollments). Idempotency tightened: re-enrolling an agent already present with the expected `phase` is a silent no-op (no diff prompt). Library agents (3 security specialists) ride along when `security-quorum` is enrolled. `wires.json` gains `enrollmentTarget` + `enrollmentTargetSource` fields. |
 | v0.4.2 | **Deterministic hook discovery + SessionStart auto-inject.** Fixes the "hook fires empty even though agents are stocked" failure mode (confirmed PPS 2026-06-30: HCF's plan-create asks Claude to improvise a bash glob; the improvised script had invalid `for f in $LOC/*.md 2>/dev/null` redirect placement, crashed at line 35, partial output read as ground truth → all hooks fired empty). Ships `scripts/discover-hooks.sh` (deterministic awk-based enumeration with `--target` / `--hook` / `--json` flags, auto-detects mount source from .ddev/docker-compose) + `hooks/discover-hooks.sh` (SessionStart hook that auto-runs the script and injects the resolved per-hook agent table into Claude's session context so plan-create never needs to improvise discovery). Bypasses the LLM-improvised-bash failure mode entirely. README troubleshooting section added. Upstream issue filed against markshust/hcf (#4) proposing HCF ship its own deterministic discover-hooks.sh so the workaround can be retired. |
 | v0.4.3 | **Container-side target detection fix.** v0.4.2's `discover-hooks.sh` auto-detect parsed `.ddev/docker-compose*.yaml` for the mount source (e.g. `~/claude-code-magento-agents`) — correct on host where that path exists, but wrong inside the container where the same agents are visible at `.claude/agents/` via the RO mount and the host path is meaningless. Updated detection order: (1) `--target=<path>` flag → (2) project-local `.claude/agents/` if it exists and has .md files (container-correct via the RO mount) → (3) docker-compose mount source only if the detected host path actually exists on disk → (4) project-local fallback. Lets the same script run correctly on both host and container. SessionStart hook now works end-to-end inside the DDEV container. |
 | v0.4.4–v0.4.9 | Model-tiering iteration (haiku/sonnet/opus assignment across bundled agents, several rounds of reviewer-tier flip-flopping settling on session-inherit for review agents) + the verify-feature contract wired into `post-plan-manual-test-plan`. See `CHANGELOG.md` for the per-version detail. |
-| v0.5.0 | **Verification spine — 4 new enrollable agents, a new `post-batch` hook point, plan-quality + test-quality + runtime-error + pipeline-proof coverage.** Ships `pre-mortem` (post-plan, order 20 — prospective failure analysis, assumes the plan failed and works backwards to causes, distinct lens from devils-advocate), `mutation-tester` (post-implementation, order 45 — Infection mutation testing on changed PHP files, PASS/PUSHBACK on min-MSI + surviving mutants, tests-that-test-the-tests), `issue-sentinel` (**new `post-batch` hook point**, order 30 — queries central Bugsink for issues since batch start, triages via bricklayer `diagnose-error`, thin-log fallback), `pipeline-audit` (post-commit, order 90 — proves which enrolled phases actually fired this run vs silently skipped, mechanizing the hcf-build-integration-gaps lesson). Wire's enrollable-agent table grows to **14 agents at 7 hook points**; `--enable-all` enrolls all 14. Also ships: bricklayer playbook template (probe-gated install, runtime-resolved-truth authority, gitnexus cross-reference for resolution-disagreement arbitration) + wire's bricklayer probe; project constitution template (`templates/constitution.md`, install-without-overwrite by wire, injected into every plan dir as `_constitution.md` by `pre-implementation-incident-recall`, checked — WARN only — by `pre-flight-check`); `/pb-hcf:interview` skill (clarity-scored pre-plan scope builder, Harper Reed one-question-at-a-time pattern, 16/20 threshold gate); central Bugsink wire probe (200-or-401-is-reachable, DSN-presence check) + `docs/release-tagging.md` (`HCF_RELEASE=<plan-name>#<batch-n>` convention) + `templates/sentry/README.md` (`justbetter/magento2-sentry` per-project install); `templates/rector/` (PHP 8.3 modernization ruleset + Magento-plugin-safety skip list) + `scripts/rector-check.sh` (deterministic changed-files dry-run gate, non-zero exit on proposed transforms) + `pre-commit-adversarial-pass` extended with a rector-diff judgment step (contested transforms near plugin/observer/DI wiring get file:line risk citations); `/pb-hcf:modernization-sweep` skill (apply-mode rector for existing code, one module × one ruleset per bounded ralph-loop-friendly run, own branch, never self-merges); `templates/otel/otel.env.dist` + `services/otel/README.md` (Claude Code OTLP telemetry client env + collector-options doc — docs/env only, no collector implementation yet). |
+| v0.5.0 | **Verification spine — 4 new enrollable agents, a new `post-batch` hook point, plan-quality + test-quality + runtime-error + pipeline-proof coverage.** Ships `pre-mortem` (post-plan, order 20 — prospective failure analysis, assumes the plan failed and works backwards to causes, distinct lens from devils-advocate), `mutation-tester` (post-implementation, order 45 — Infection mutation testing on changed PHP files, PASS/PUSHBACK on min-MSI + surviving mutants, tests-that-test-the-tests), `issue-sentinel` (**new `post-batch` hook point**, order 30 — queries central Bugsink for issues since batch start, triages via bricklayer `diagnose-error`, thin-log fallback), `pipeline-audit` (post-commit, order 90 — proves which enrolled phases actually fired this run vs silently skipped, mechanizing the hcf-build-integration-gaps lesson). Wire's enrollable-agent table grows to **14 agents at 7 hook points**; `--enable-all` enrolls all 14. Also ships: bricklayer playbook template (probe-gated install, runtime-resolved-truth authority, codegraph cross-reference for resolution-disagreement arbitration) + wire's bricklayer probe; project constitution template (`templates/constitution.md`, install-without-overwrite by wire, injected into every plan dir as `_constitution.md` by `pre-implementation-incident-recall`, checked — WARN only — by `pre-flight-check`); `/pb-hcf:interview` skill (clarity-scored pre-plan scope builder, Harper Reed one-question-at-a-time pattern, 16/20 threshold gate); central Bugsink wire probe (200-or-401-is-reachable, DSN-presence check) + `docs/release-tagging.md` (`HCF_RELEASE=<plan-name>#<batch-n>` convention) + `templates/sentry/README.md` (`justbetter/magento2-sentry` per-project install); `templates/rector/` (PHP 8.3 modernization ruleset + Magento-plugin-safety skip list) + `scripts/rector-check.sh` (deterministic changed-files dry-run gate, non-zero exit on proposed transforms) + `pre-commit-adversarial-pass` extended with a rector-diff judgment step (contested transforms near plugin/observer/DI wiring get file:line risk citations); `/pb-hcf:modernization-sweep` skill (apply-mode rector for existing code, one module × one ruleset per bounded ralph-loop-friendly run, own branch, never self-merges); `templates/otel/otel.env.dist` + `services/otel/README.md` (Claude Code OTLP telemetry client env + collector-options doc — docs/env only, no collector implementation yet). |
 
 Next planned playbook: `playwright.md` — folds in E2E test design and coverage guidance.

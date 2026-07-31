@@ -2,7 +2,7 @@
 name: pre-flight-check
 description: "pb-hcf pre-plan gate — verifies onboarding artifacts (.claude/CLAUDE.md, .claude/testing.md, .claude/wires.json, pb-hcf fence in CLAUDE.md), loops .claude/wires.json `playbooks[]` and runs every probe, and refuses to proceed if the working tree is on a protected branch (live/uat/main/master). Returns STATUS: PASS, STATUS: WARN, or STATUS: BLOCK. A BLOCK aborts plan-create — fix the cited issue and re-run. Replaces the manual pre-flight steps from /proxiblue-skills:workflow-build-feature."
 model: haiku
-tools: Read, Glob, Bash, mcp__gitnexus-mageos__list_repos, mcp__graphiti__get_status
+tools: Read, Glob, Bash, mcp__pb-codegraph__list_repos, mcp__graphiti__get_status
 ---
 
 # Pre-flight check
@@ -32,7 +32,7 @@ Verify every file exists. Each missing one is a BLOCK.
 
 **Legacy pipeline.md check** — if `.claude/pipeline.md` exists, BLOCK with: "HCF v2 retired pipeline.md. Run `/hcf:project-update` to migrate it into agent frontmatter, then re-run." HCF itself already gates on this; calling it out here surfaces the fix earlier.
 
-**Legacy pb-gitnexus fence** — if `.claude/CLAUDE.md` contains `<!-- pb-gitnexus:start -->` and NOT `<!-- pb-hcf:start -->`, BLOCK with: "Legacy pb-gitnexus fence detected. Run `/pb-hcf:wire` — it auto-migrates the fence."
+**Legacy wire fence** — if `grep -q 'pb-git[n]exus:start' .claude/CLAUDE.md` matches and the file does NOT contain `<!-- pb-hcf:start -->`, BLOCK with: "Legacy code-graph wire fence detected. Run `/pb-hcf:wire` — it auto-migrates the fence." (the bracket expression keeps the deprecated plugin's name out of this repo while still matching the literal marker in project files)
 
 **Constitution check** — if `.claude/constitution.md` is missing, this is a **WARN, not a BLOCK** (adoption is gradual; not every project has filled one in yet). Cite: "`.claude/constitution.md` missing — run `/pb-hcf:wire` to install the template, then fill in project invariants. Proceeding without it; tdd-workers and reviewers won't carry project-wide invariants this run." You do NOT have a plan name yet at this hook (see "Inputs you receive" above), so do NOT attempt to copy the constitution into a plan directory here — that happens later, at `pre-implementation`, once the plan dir exists (see `pre-implementation-incident-recall`).
 
@@ -46,9 +46,9 @@ For each line `<name>|<probe>`, run the appropriate probe:
 
 | Playbook | Probe | Pass criterion |
 |---|---|---|
-| `gitnexus` | `curl -sS -o /dev/null -w '%{http_code}\n' -m 3 http://gitnexus:4747/` then `mcp__gitnexus-mageos__list_repos` | HTTP 200 + non-empty repo list |
+| `codegraph` | `pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/registry.json}"` then `mcp__pb-codegraph__list_repos` | exit 0 (`status: "green"`) + non-empty repo list |
 | `graphiti` | `mcp__graphiti__get_status` | `status: ok` |
-| `security` | No standalone probe; inherits from `gitnexus` + `graphiti` | n/a |
+| `security` | No standalone probe; inherits from `codegraph` + `graphiti` | n/a |
 | Any other | If the probe string starts with `http`, curl it; if it starts with `mcp__`, call that MCP tool. Pass = whatever the playbook entry's wires.json `expected` shape allows (just check it returns without error if no expected is recorded). | best-effort |
 
 A failed probe is a **BLOCK** (don't plan against a half-up stack — output is unreliable). Cite the playbook name, the probe that failed, and the recommended fix (DDEV restart, MCP server up, etc.).
@@ -96,7 +96,7 @@ STATUS: PASS
 
 Onboarding artifacts: ✓ all present
 Reachability:
-  gitnexus  : ✓ http://gitnexus:4747/ (200, N repos indexed)
+  codegraph : ✓ pb-codegraph health (green, N repos indexed)
   graphiti  : ✓ mcp__graphiti__get_status (ok)
 Branch:     ✓ feature/<branch-name> (not protected)
 ```

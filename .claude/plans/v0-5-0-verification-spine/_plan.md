@@ -19,7 +19,7 @@ Repo at 0.4.9: 13 agents, skills/wire, templates/{captainhook,playbooks}, servic
 
 Conventions to follow: agent source frontmatter keys `name/description/model/tools` (NO phase/order/mode); playbooks declare "Authority scope"; services ship compose+README; wire records probes into `.claude/wires.json`.
 
-Existing enrolled orders (from source): pre-plan → pre-flight-check 5, pre-plan-graphiti-recall 10, devils-advocate 10 (HCF), post-plan-manual-test-plan 50; post-implementation → gitnexus-reviewer 30, graphiti-reviewer 40, standards-enforcer 50 (HCF, untouchable), security-quorum 70; pre-commit → pre-commit-adversarial-pass 10; post-commit → verify-handoff 10, build-summary 20. **New-agent orders (collision-checked): pre-mortem post-plan 20 (free), mutation-tester post-implementation 45 (NOT 40 — 40 is taken by graphiti-reviewer), issue-sentinel post-batch 30 (free, first at this hook), pipeline-audit post-commit 90 (free, tail).**
+Existing enrolled orders (from source): pre-plan → pre-flight-check 5, pre-plan-graphiti-recall 10, devils-advocate 10 (HCF), post-plan-manual-test-plan 50; post-implementation → codegraph-reviewer 30, graphiti-reviewer 40, standards-enforcer 50 (HCF, untouchable), security-quorum 70; pre-commit → pre-commit-adversarial-pass 10; post-commit → verify-handoff 10, build-summary 20. **New-agent orders (collision-checked): pre-mortem post-plan 20 (free), mutation-tester post-implementation 45 (NOT 40 — 40 is taken by graphiti-reviewer), issue-sentinel post-batch 30 (free, first at this hook), pipeline-audit post-commit 90 (free, tail).**
 
 ## Scope
 ### In Scope
@@ -27,7 +27,7 @@ Existing enrolled orders (from source): pre-plan → pre-flight-check 5, pre-pla
 - Skills: interview (pre-plan scope builder), modernization-sweep (rector apply-mode)
 - Templates: rector/ (dist config + skip rules + phpstan ratchet doc), constitution.md, otel env
 - Wire extensions: bricklayer probe, bugsink probe, constitution injection via pre-flight-check
-- Playbooks: bricklayer template seeded; gitnexus template gains bricklayer cross-ref
+- Playbooks: bricklayer template seeded; codegraph template gains bricklayer cross-ref
 - services/otel/ docs (collector optional, mirrors bugsink pattern)
 - Version bump + CHANGELOG + README
 ### Out of Scope
@@ -48,7 +48,7 @@ Existing enrolled orders (from source): pre-plan → pre-flight-check 5, pre-pla
 ## Task Overview
 | Task | Description | Depends On | Status |
 |------|-------------|------------|--------|
-| 001 | Bricklayer playbook template + gitnexus cross-ref | - | completed |
+| 001 | Bricklayer playbook template + codegraph cross-ref | - | completed |
 | 002 | Wire: bricklayer probe | 001 | completed |
 | 003 | pre-mortem agent | - | completed |
 | 004 | pipeline-audit agent | - | completed |
@@ -66,7 +66,7 @@ Existing enrolled orders (from source): pre-plan → pre-flight-check 5, pre-pla
 ## Architecture Notes
 - Agents enroll ONLY via wire --enable copy with frontmatter stamped; defaults dormant (HCF convention). New-agent source files (003/004/005/009) carry NO phase/order/mode — task 014 registers them in the wire enrollable table + --enable-all list so wire can stamp them.
 - **Wire SKILL.md is edited by multiple tasks (002, 008 probes; 006 install-mention; 011 fence pointer; 014 enrollable-table registration).** These touch DISJOINT named sections. 002+008 both add to the reachability probe table + wires.json shape → 008 depends on 002 to serialize that shared section. 006/011 touch different sections → coordinate via anchored Edits (re-read before edit; touch only your named section). 014's enrollable-agent registration runs last (depends on all).
-- **Evidence trail for pipeline-audit (004):** every enrolled agent must leave a discoverable artefact so pipeline-audit can prove it fired. Existing file-writers: devils-advocate→_devils_advocate.md, pre-mortem→_pre_mortem.md, manual-test-plan→test-plans/<ticket>.yml. New agents that would otherwise emit inline-only verdicts MUST write a plan-dir artefact: mutation-tester→_mutation_tester.md, issue-sentinel→_issue_sentinel.md. pipeline-audit maps each enrolled agent to its artefact; inline-only reviewers (gitnexus/graphiti/security) are evidenced via commit-message trailer.
+- **Evidence trail for pipeline-audit (004):** every enrolled agent must leave a discoverable artefact so pipeline-audit can prove it fired. Existing file-writers: devils-advocate→_devils_advocate.md, pre-mortem→_pre_mortem.md, manual-test-plan→test-plans/<ticket>.yml. New agents that would otherwise emit inline-only verdicts MUST write a plan-dir artefact: mutation-tester→_mutation_tester.md, issue-sentinel→_issue_sentinel.md. pipeline-audit maps each enrolled agent to its artefact; inline-only reviewers (codegraph/graphiti/security) are evidenced via commit-message trailer.
 - **Custom-namespace scope (005/011/012):** "changed custom-namespace PHP files" = git-changed `*.php` under `app/code/`, excluding `generated/`, `vendor/`, and test fixtures. Deterministic default needs no config; an optional project override may extend the root list. All three tasks use this same definition.
 - issue-sentinel reads env from ~/.pb-hcf/bugsink.env (host) / mounted equivalent (container); never hardcodes DSN/token.
 - Release tag convention: HCF_RELEASE=<plan-name>#<batch> exported by orchestration wrapper doc; issue-sentinel + magento2-sentry both consume it.

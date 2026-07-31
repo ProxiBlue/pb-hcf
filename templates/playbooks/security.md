@@ -11,11 +11,11 @@ This playbook is the source of truth for:
 - **Controls verification** — pass-then-verify discipline on framework-provided defenses (Magento ACL, form_key, escapeHtml, CSP, session backend, crypto primitives).
 
 This playbook is NOT the authority for (defer to sibling playbooks):
-- **Code structure / who calls what** → `gitnexus.md` — the security agents USE `mcp__gitnexus-mageos__impact` internally, but the authoritative code-graph view lives in gitnexus.md.
+- **Code structure / who calls what** → `codegraph.md` — the security agents USE `mcp__pb-codegraph__impact` internally, but the authoritative code-graph view lives in codegraph.md.
 - **Prior incidents / decisions about controls** → `graphiti.md` — the security agents query graphiti for past CVE/incident facts and prior control decisions, but graphiti is the authoritative source on intent + history.
 - **E2E test design / coverage** → `playwright.md` (when wired).
 
-When a finding cites both gitnexus impact AND graphiti incident recall, surface both — the multi-source citation is exactly what the quorum is meant to produce.
+When a finding cites both codegraph impact AND graphiti incident recall, surface both — the multi-source citation is exactly what the quorum is meant to produce.
 
 ## Mandatory prior-incident recall (query graphiti BEFORE planning or reviewing auth-touching code)
 
@@ -33,7 +33,7 @@ Three specialist agents bundled with pb-hcf, each taking a different angle so co
 
 | Agent | Angle | Cited by |
 |---|---|---|
-| `security-static-analyst` | Reads code, traces data flows from sources (HTTP params, uploads, webhook bodies) to dangerous sinks (SQL, exec, template, deserialise, IDOR). Cites file:line for every claim. Uses gitnexus `impact` to chase indirect callers grep misses. | findings.file + findings.line |
+| `security-static-analyst` | Reads code, traces data flows from sources (HTTP params, uploads, webhook bodies) to dangerous sinks (SQL, exec, template, deserialise, IDOR). Cites file:line for every claim. Uses codegraph `impact` to chase indirect callers grep misses. | findings.file + findings.line |
 | `security-adversarial-tester` | Assumes hostile actor. Writes exploit payloads + attack chains. Online CVE lookups (NVD, GitHub Advisory DB, OSV) for dependency-version vulnerabilities. Runs native audit tools (`composer audit`, `npm audit`). | payload + cve list |
 | `security-defensive-auditor` | Verifies framework defenses + mitigations *already present* — pass-then-verify discipline. Walks each control and confirms it fires correctly, not just imports. | controls_verified list |
 
@@ -51,7 +51,7 @@ Add to the project's `.claude/pipeline.md`:
 ## post-implementation
 - standards-enforcer
 - security-quorum
-- gitnexus-reviewer
+- codegraph-reviewer
 ```
 
 HCF's `/hcf:plan-orchestrate` Phase 6 picks them up automatically. Runs at batch end over the whole diff. The quorum's verdict surfaces in the orchestration summary; FAIL doesn't auto-block the commit (HCF doesn't gate on agent output) but it surfaces prominently so the user can intervene.
@@ -63,7 +63,7 @@ Add to `QUALITY_GATES` in the workflow:
 ```
 QUALITY_GATES = [
   "security-quorum",      # 3-agent OWASP audit; PASS required to proceed
-  "workflow-security-audit",  # OPTIONAL second pass (single-agent gitnexus-aware)
+  "workflow-security-audit",  # OPTIONAL second pass (single-agent codegraph-aware)
 ]
 ```
 
@@ -130,17 +130,17 @@ Compared to siblings:
 
 The 3 specialists each consult sibling playbooks during their work:
 
-- All three use `mcp__gitnexus-mageos__impact` for indirect-caller chase (gitnexus.md is authoritative on what callers exist).
+- All three use `mcp__pb-codegraph__impact` for indirect-caller chase (codegraph.md is authoritative on what callers exist).
 - All three use `mcp__graphiti__search_memory_facts` for prior incident recall (graphiti.md is authoritative on history).
 - After the quorum verdict, `security-quorum` writes ONE episode to graphiti documenting the outcome under `<project>` group — future audits' Static Analyst recall surfaces it.
 
-When a vulnerability is found, the report cites the gitnexus impact result AND the graphiti incident match. That multi-source provenance is the point of the wire — each playbook contributes its angle.
+When a vulnerability is found, the report cites the codegraph impact result AND the graphiti incident match. That multi-source provenance is the point of the wire — each playbook contributes its angle.
 
 ## Failure modes (degrade gracefully, do not block on infrastructure)
 
 | Infrastructure issue | Quorum response |
 |---|---|
-| gitnexus unreachable | Specialists fall back to grep-only; mark `gitnexus_reachable: false` in their JSON; quorum verdict includes the limitation in the report. NOT a vote-driving failure. |
+| codegraph unreachable | Specialists fall back to grep-only; mark `codegraph_reachable: false` in their JSON; quorum verdict includes the limitation in the report. NOT a vote-driving failure. |
 | graphiti unreachable | Specialists skip prior-incident recall; mark `graphiti_reachable: false`; verdict episode write at the end is skipped (orchestrator surfaces this in the report). |
 | One specialist agent returns malformed JSON | Orchestrator re-prompts that agent once; if still malformed, marks vote as MALFORMED and proceeds with 2-agent verdict (must be unanimous in that case). |
 | All three specialists time out | Quorum reports NEEDS-REVIEW with escalation flag; do NOT default to PASS. |

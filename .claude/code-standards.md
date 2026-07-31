@@ -6,4 +6,4 @@
 - Templates: *.dist suffix, `<Vendor>`/`<project>` placeholders, one-line WHY comment per non-obvious rule/skip.
 - Docs: every new file referenced from README.md; services follow services/<name>/{docker-compose.yml,README.md} pattern; no secrets ever committed (env files live in ~/.pb-hcf/, mode 600).
 - Portability: nothing pps-/project-specific in any template or agent; HCF source never modified.
-- Style: match existing files (see agents/gitnexus-reviewer.md, skills/wire/SKILL.md as canon).
+- Style: match existing files (see agents/codegraph-reviewer.md, skills/wire/SKILL.md as canon).

@@ -1,6 +1,6 @@
 ---
 name: post-commit-build-summary
-description: "pb-hcf post-commit agent — prints the BUILD COMPLETE summary aggregating plan path, devils-advocate output, per-task review outcomes, post-implementation hook verdicts (gitnexus-reviewer, graphiti-reviewer, security-quorum), pre-commit adversarial DEFER notes if any, test results, commit info, and 'ready to deploy' guidance. Replaces step 13 of /proxiblue-skills:workflow-build-feature."
+description: "pb-hcf post-commit agent — prints the BUILD COMPLETE summary aggregating plan path, devils-advocate output, per-task review outcomes, post-implementation hook verdicts (codegraph-reviewer, graphiti-reviewer, security-quorum), pre-commit adversarial DEFER notes if any, test results, commit info, and 'ready to deploy' guidance. Replaces step 13 of /proxiblue-skills:workflow-build-feature."
 model: sonnet
 tools: Read, Glob, Bash
 ---
@@ -48,7 +48,7 @@ The orchestrator's run output includes the verdicts of every hook agent that fir
 | Agent | Where its verdict lives |
 |---|---|
 | `devils-advocate` | `.claude/plans/<plan-name>/_devils_advocate.md` (or wherever HCF wrote it — Phase 6 output) |
-| `gitnexus-reviewer` | Look for `STATUS: PASS|PUSHBACK` lines in orchestrator scrollback — or read `.claude/plans/<plan-name>/_gitnexus_review.md` if one was written |
+| `codegraph-reviewer` | Look for `STATUS: PASS|PUSHBACK` lines in orchestrator scrollback — or read `.claude/plans/<plan-name>/_codegraph_review.md` if one was written |
 | `graphiti-reviewer` | Same shape — `_graphiti_review.md` if written |
 | `security-quorum` | One verdict episode in graphiti — search `mcp__graphiti__search_memory_facts(query="security-quorum verdict <plan-name>")` or look for `_security_quorum.md` |
 | `pre-commit-adversarial-pass` | `STATUS: PASS|DEFER` in orchestrator scrollback; deferred concerns must be surfaced here |
@@ -74,7 +74,7 @@ Per-task review outcomes:
   ...
 
 Post-implementation hooks:
-  gitnexus-reviewer    : PASS   (N modules reviewed, 0 indirect-caller risks)
+  codegraph-reviewer    : PASS   (N modules reviewed, 0 indirect-caller risks)
   graphiti-reviewer    : PASS   (M searches, 0 prior-decision conflicts)
   security-quorum      : PASS   (verdict episode: <graphiti-uuid>)
 

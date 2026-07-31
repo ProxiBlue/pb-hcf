@@ -26,7 +26,7 @@ If any input is missing, ask for it once. Do not proceed without `audit_target`.
 Verify quorum dependencies once:
 
 ```bash
-curl -sS -o /dev/null -w 'HTTP %{http_code}\n' -m 3 http://gitnexus:4747/ || echo "gitnexus unreachable"
+pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/registry.json}" || echo "codegraph unreachable"
 ```
 ```
 mcp__graphiti__get_status
@@ -114,7 +114,7 @@ Dissents preserved:
   - <agent angle> argued <position> — evidence: <cite>
 
 Reachability at audit time:
-  gitnexus: <reachable|down>
+  codegraph: <reachable|down>
   graphiti: <reachable|down>
 """,
   source="text",
@@ -134,7 +134,7 @@ Output ONE structured report:
 
 **Audit target:** <verbatim>
 **Task:** <task_context>
-**Reachability:** gitnexus=<state>, graphiti=<state>
+**Reachability:** codegraph=<state>, graphiti=<state>
 
 ## Vote table
 

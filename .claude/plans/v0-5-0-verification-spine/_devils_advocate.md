@@ -68,7 +68,7 @@ exclusive section + "re-read before anchored Edit". 014's registration runs last
 Task 004 declares "absence of evidence = FAIL". But mutation-tester and
 issue-sentinel (as originally written) emit inline PUSHBACK/PASS only — no
 discoverable file — so pipeline-audit would FAIL agents that actually ran. Also
-inline-only existing reviewers (gitnexus/graphiti/security/adversarial-pass)
+inline-only existing reviewers (codegraph/graphiti/security/adversarial-pass)
 write no plan-dir file at all.
 **Fix applied:** 005 now writes `_mutation_tester.md`, 009 writes
 `_issue_sentinel.md` (every run incl. PASS/degraded). 004 gains an explicit
@@ -109,7 +109,7 @@ count + post-batch hook), and a note in 009 that post-batch is a newly-used hook
 
 - **Q1:** Should mutation-tester run before standards (45, current) or after
   security (80) to minimize wasted Infection compute on retries? (See M1.)
-- **Q2:** For inline-only reviewers (gitnexus/graphiti/security), is a
+- **Q2:** For inline-only reviewers (codegraph/graphiti/security), is a
   commit-message trailer an acceptable evidence channel for pipeline-audit, or
   should those HCF-owned-adjacent agents also be nudged to drop a plan-dir marker?
   Current fix uses the commit-trailer fallback to avoid touching their contracts.

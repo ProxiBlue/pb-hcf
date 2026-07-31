@@ -13,23 +13,23 @@ This playbook is the source of truth for:
 - **In-context execution** — running PHP inside the booted app to confirm behaviour (`code-runner`).
 
 This playbook is NOT the authority for (defer to sibling playbooks):
-- **Static structure / blast radius across the whole codebase incl. disabled modules + tests** → `gitnexus.md` (fast static graph; sees code bricklayer can't boot).
+- **Static structure / blast radius across the whole codebase incl. disabled modules + tests** → `codegraph.md` (fast static graph; sees code bricklayer can't boot).
 - **What was discussed / decided / planned** → `graphiti.md` (intent, not runtime).
 - **Security audit / vulnerability assessment** → `security.md`.
 - **End-to-end test design / coverage** → `testing.md`.
 
-### Bricklayer vs GitNexus — arbitration
+### Bricklayer vs pb-codegraph — arbitration
 
 They are complementary, not redundant:
 
 | Question | Reach for |
 |---|---|
 | "What *fires / resolves* at runtime in THIS env?" | **bricklayer** — live boot, no snapshot drift, but only **enabled** modules + this env's config |
-| "What could break structurally / full blast radius across all source (incl. disabled modules, tests)?" | **gitnexus** — fast static graph over the whole tree |
-| "Who calls X?" (structural) | gitnexus `impact` |
+| "What could break structurally / full blast radius across all source (incl. disabled modules, tests)?" | **codegraph** — fast static graph over the whole tree |
+| "Who calls X?" (structural) | codegraph `impact` |
 | "Does my plugin actually land in the chain, at what order?" (runtime) | bricklayer `plugin-list` / `check-class` |
 
-When the two **disagree on a resolution question, trust bricklayer** — it reads the booted app, gitnexus reads a possibly-stale snapshot and cannot see env-specific module enablement or config. Cross-cite both; name the tool that produced the evidence.
+When the two **disagree on a resolution question, trust bricklayer** — it reads the booted app, codegraph reads a possibly-stale snapshot and cannot see env-specific module enablement or config. Cross-cite both; name the tool that produced the evidence.
 
 ## MCP server: `bricklayer`
 
@@ -64,17 +64,17 @@ First-probe with `application-info`:
   composer require --dev inchoo/magento-bricklayer
   vendor/bin/bricklayer install --env=ddev --agents=claude-code
   ```
-  Then restart the Claude session so the MCP re-launches. Until then, **do not silently pretend runtime data**; state that bricklayer is unavailable and fall back to `gitnexus.md` (static) + reading source, noting the analysis is structural-only.
+  Then restart the Claude session so the MCP re-launches. Until then, **do not silently pretend runtime data**; state that bricklayer is unavailable and fall back to `codegraph.md` (static) + reading source, noting the analysis is structural-only.
 
 ## Devil's Advocate playbook (HCF plan review) — primary consumer
 
-When `devils-advocate` reviews a plan, bricklayer closes the exact gap gitnexus leaves open: gitnexus enumerates *possible* wiring from a static snapshot; bricklayer reads the *resolved* runtime truth. Its checklist items 2 (framework gotchas) and 6 (integration completeness) are strongest here.
+When `devils-advocate` reviews a plan, bricklayer closes the exact gap codegraph leaves open: codegraph enumerates *possible* wiring from a static snapshot; bricklayer reads the *resolved* runtime truth. Its checklist items 2 (framework gotchas) and 6 (integration completeness) are strongest here.
 
 1. **For every class the plan plugins / overrides / modifies** — `check-class`. If a **DI preference already substitutes a different class** for the plan's target, a plugin/preference planned against the original **never fires** → flag **Critical**, quote the `preference-list` / `di-configuration` result.
 2. **For every plugin the plan adds** — `plugin-list` on the target method. If existing third-party plugins occupy conflicting `sortOrder`, or the plan's assumed order is wrong, flag **Important** with the resolved chain listed.
 3. **For every observer / event the plan touches** — confirm what already observes it at runtime (via `check-class` / `search-tools event`). Existing vendor observers frequently collide.
 4. **For any product/customer data work** — `eav-attributes` to confirm the attribute exists and its backend type, before the plan assumes a column.
-5. **Limitation:** bricklayer sees only **currently enabled** modules in **this env**. Code the plan *adds*, or logic in *disabled* modules, is invisible — note that in `_devils_advocate.md` and defer the static half to gitnexus.
+5. **Limitation:** bricklayer sees only **currently enabled** modules in **this env**. Code the plan *adds*, or logic in *disabled* modules, is invisible — note that in `_devils_advocate.md` and defer the static half to codegraph.
 
 Cite the bricklayer tool + class that produced each finding (e.g. *"`preference-list` shows `Magento\...\ProductRepositoryInterface` resolves to `VendorZ\Module\Repository`; the plan's plugin targets the core class and will not run"*).
 
@@ -99,6 +99,6 @@ Before writing tasks, enumerate the real interception surface on the target — 
 ## When NOT to use bricklayer
 
 - Pure template / CSS / copy edits — no runtime resolution involved.
-- Static "who calls X across the entire codebase" / blast radius → `gitnexus.md` is faster and covers disabled modules + tests.
-- When the app cannot boot (broken build, mid-migration DB) — bricklayer needs a working Magento; fall back to gitnexus + source and say so.
+- Static "who calls X across the entire codebase" / blast radius → `codegraph.md` is faster and covers disabled modules + tests.
+- When the app cannot boot (broken build, mid-migration DB) — bricklayer needs a working Magento; fall back to codegraph + source and say so.
 - Writes to catalog/order/customer data on anything but a throwaway env — treat CRUD tools as capable of mutating real data; default to read-only introspection.

@@ -1,24 +1,24 @@
-# Task 001: Bricklayer playbook template + gitnexus cross-ref
+# Task 001: Bricklayer playbook template + codegraph cross-ref
 
 **Status**: completed
 **Depends on**: none
 **Retry count**: 0
 
 ## Description
-Seed the locally-authored pps bricklayer playbook as a portable pb-hcf template and add the bricklayer cross-reference (runtime-resolution arbitration) to the gitnexus playbook template, so wire runs never threaten hand-improved local copies again.
+Seed the locally-authored pps bricklayer playbook as a portable pb-hcf template and add the bricklayer cross-reference (runtime-resolution arbitration) to the codegraph playbook template, so wire runs never threaten hand-improved local copies again.
 
 ## Context
 - Source of truth: /home/lucas/workspace/uptactics/pvcpipesupplies/.claude/bricklayer.md (genericize: strip pps-specific counts/paths where present; keep authority-scope, arbitration table, tier-1 tool list, reachability protocol, devils-advocate/tdd-worker/plan-create playbook sections)
 - Target: templates/playbooks/bricklayer.md
-- Also edit: templates/playbooks/gitnexus.md — add the "Bricklayer vs GitNexus — arbitration" pointer line present in pps's local copy
+- Also edit: templates/playbooks/codegraph.md — add the "Bricklayer vs pb-codegraph — arbitration" pointer line present in pps's local copy
 - Patterns: existing templates/playbooks/*.md declare "Authority scope" first
 
 ## Requirements (Test Descriptions)
 - [x] `it ships templates/playbooks/bricklayer.md with Authority scope section first` — first `## ` heading is "Authority scope"
-- [x] `it contains the gitnexus-vs-bricklayer arbitration table with trust-bricklayer-on-disagreement rule` — `### Bricklayer vs GitNexus — arbitration` table + "trust bricklayer" line
+- [x] `it contains the codegraph-vs-bricklayer arbitration table with trust-bricklayer-on-disagreement rule` — `### Bricklayer vs pb-codegraph — arbitration` table + "trust bricklayer" line
 - [x] `it contains the reachability check (composer require fallback) section` — `## Reachability — check before use` with `composer require --dev inchoo/magento-bricklayer` fallback
 - [x] `it contains zero pps-specific strings (grep -ci 'pps\|pvcpipesupplies\|uptactics' = 0)` — source file at /home/lucas/workspace/uptactics/pvcpipesupplies/.claude/bricklayer.md was already generic (0 hits); copied verbatim aside from removing the one pps-specific wrapper-path mention
-- [x] `it adds bricklayer cross-reference to templates/playbooks/gitnexus.md` — added bricklayer.md bullet to gitnexus.md's "NOT the authority for" list with trust-bricklayer-on-disagreement note
+- [x] `it adds bricklayer cross-reference to templates/playbooks/codegraph.md` — added bricklayer.md bullet to codegraph.md's "NOT the authority for" list with trust-bricklayer-on-disagreement note
 
 ## Acceptance Criteria
 - Both templates read standalone; wire can copy bricklayer.md to any Magento project unchanged

@@ -1,13 +1,13 @@
 ---
 name: wire
-description: Wire HCF agents (devils-advocate, tdd-worker, standards-enforcer, plus pb-hcf's gitnexus-reviewer + security-quorum agents) into the fleet's per-domain playbooks (gitnexus, graphiti, security, …) by installing playbook files into .claude/<name>.md, appending a single fenced section to .claude/CLAUDE.md, optionally enrolling pb-hcf agents into HCF v2 hook frontmatter (--enable=<name>[,<name>]), and recording wire state in .claude/wires.json. Multi-playbook successor to the per-plugin wire skills (replaces /pb-gitnexus:wire). Run AFTER /hcf:project-setup.
+description: Wire HCF agents (devils-advocate, tdd-worker, standards-enforcer, plus pb-hcf's codegraph-reviewer + security-quorum agents) into the fleet's per-domain playbooks (codegraph, graphiti, security, …) by installing playbook files into .claude/<name>.md, appending a single fenced section to .claude/CLAUDE.md, optionally enrolling pb-hcf agents into HCF v2 hook frontmatter (--enable=<name>[,<name>]), and recording wire state in .claude/wires.json. Multi-playbook successor to the deprecated per-plugin wire skills (one wire per domain plugin). Run AFTER /hcf:project-setup.
 model: sonnet
 disable-model-invocation: true
 ---
 
 # /pb-hcf:wire
 
-Install pb-hcf's fleet playbooks into the current project so HCF's existing agents (devils-advocate, tdd-worker, standards-enforcer) and pb-hcf's bundled agents (`gitnexus-reviewer`, `security-quorum`) pick up the per-domain guidance via context. This is the consolidated replacement for `/pb-gitnexus:wire` — one skill installs ALL playbooks under `pb-hcf/templates/playbooks/` instead of one skill per plugin.
+Install pb-hcf's fleet playbooks into the current project so HCF's existing agents (devils-advocate, tdd-worker, standards-enforcer) and pb-hcf's bundled agents (`codegraph-reviewer`, `security-quorum`) pick up the per-domain guidance via context. This is the consolidated replacement for the deprecated per-plugin wire skill — one skill installs ALL playbooks under `pb-hcf/templates/playbooks/` instead of one skill per plugin.
 
 **Architectural note (HCF v2.0.0+):** HCF dropped `.claude/pipeline.md`. Agents now enroll into the 8 hook points (`pre-plan`, `post-plan`, `pre-implementation`, `pre-batch`, `post-batch`, `post-implementation`, `pre-commit`, `post-commit`) via YAML frontmatter (`phase:` / `order:` / `mode:`). See `${CLAUDE_PLUGIN_ROOT}/../hcf/HOOKS.md` (or `https://github.com/markshust/hcf#pipeline`).
 
@@ -32,7 +32,7 @@ Abort with a clear message if any fail:
 
 ## Playbook discovery
 
-Enumerate all `*.md` files under `$CLAUDE_PLUGIN_ROOT/templates/playbooks/`. Each file becomes one wire entry. The basename (sans `.md`) is the playbook name (e.g. `gitnexus.md` → `gitnexus`).
+Enumerate all `*.md` files under `$CLAUDE_PLUGIN_ROOT/templates/playbooks/`. Each file becomes one wire entry. The basename (sans `.md`) is the playbook name (e.g. `codegraph.md` → `codegraph`).
 
 For each playbook, read its first heading (`# <Title>`) — used in the CLAUDE.md fenced section pointers.
 
@@ -42,11 +42,11 @@ For each discovered playbook, attempt a domain-appropriate reachability probe an
 
 | Playbook | Probe | Expected |
 |---|---|---|
-| `gitnexus.md` | `curl -sS -o /dev/null -w '%{http_code}\n' -m 3 http://gitnexus:4747/` then `mcp__gitnexus-mageos__list_repos` | HTTP 200 + non-empty repo list |
+| `codegraph.md` | `pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/registry.json}"` then `mcp__pb-codegraph__list_repos` | exit 0 (`status: "green"`) + non-empty repo list |
 | `graphiti.md` | `mcp__graphiti__get_status` (URL detected from env — host or `host.docker.internal`) | `status: ok` |
 | `bricklayer.md` | Check for the `vendor/bin/bricklayer` executable first — absent means non-Magento project or bricklayer not installed as a dev dependency, skip straight to unreachable. If present, capture the CLI version via `vendor/bin/bricklayer list \| head -1` (or `vendor/bin/bricklayer --version`, whichever the installed CLI supports) | Executable present + version captured → record it in `details.version` and mark `reachable: true`. Executable absent → mark `reachable: false` and record an install hint in `details.install` pointing at `composer require --dev inchoo/magento-bricklayer` (Magento-project-only dev dependency; absence on a non-Magento project is expected and non-fatal). |
 | `bugsink` (central service, not a per-project playbook file) | Source credentials from the env file — `~/.pb-hcf/bugsink.env` on host, or the equivalent container-mounted copy — never hardcode `BUGSINK_URL_CONTAINER` or `BUGSINK_API_TOKEN` in any committed file. Probe: `curl -sS -o /dev/null -w '%{http_code}\n' -m 3 -H "Authorization: Bearer $BUGSINK_API_TOKEN" $BUGSINK_URL_CONTAINER/api/canonical/0/`. Separately check DSN presence for this project: does a `BUGSINK_DSN_<PROJECT>` var exist in the same env file? | HTTP `200` **or** `401` both count as `reachable: true` (either proves the service answered — a `401` just means the token/scheme was rejected, the service is up). Connection-refused / timeout = `reachable: false`. Record DSN presence as a separate `details.projectDsnVar` boolean/name, independent of reachability. |
-| `security.md` | No standalone probe — quorum agents reachable as long as `gitnexus` + `graphiti` are. Mark `reachable: true` unconditionally; record dependency on the other two playbooks' state in `details`. | n/a |
+| `security.md` | No standalone probe — quorum agents reachable as long as `codegraph` + `graphiti` are. Mark `reachable: true` unconditionally; record dependency on the other two playbooks' state in `details`. | n/a |
 | `playwright.md` | (future — define when shipping) | TBD |
 | Any other | Skip probe; mark `reachable: unknown` | — |
 
@@ -93,7 +93,7 @@ Use ONE fenced section with stable markers, listing pointers to ALL installed pl
 
 For domain-specific tooling and per-agent playbooks, consult the relevant file:
 
-- **Code-graph queries** (callers, dependents, signatures, Magento wiring) → `@.claude/gitnexus.md`
+- **Code-graph queries** (callers, dependents, signatures, Magento wiring) → `@.claude/codegraph.md`
 - **Knowledge graph** (discussions, decisions, planned features, prior incidents) → `@.claude/graphiti.md`
 - **Security audit** (OWASP, vulnerability assessment) → `@.claude/security.md`
 - **End-to-end testing** (Playwright + coverage) → `@.claude/playwright.md`
@@ -105,9 +105,9 @@ Each playbook declares its **Authority scope** at the top — defer to the named
 
 Only emit pointer lines for playbooks that actually got installed in step 1. Re-runs replace the entire fenced section (not duplicate, not split).
 
-### 3. Detect + replace legacy `pb-gitnexus:` fence (migration)
+### 3. Detect + replace the legacy wire fence (migration)
 
-If `.claude/CLAUDE.md` contains a legacy `<!-- pb-gitnexus:start --> ... <!-- pb-gitnexus:end -->` block from the deprecated wire, remove it before writing the new `pb-hcf:` fence (handled inline in step 2). Report this as `migrated legacy pb-gitnexus fence → pb-hcf fence` in the completion output. Also clean up `.claude/gitnexus.json` if present (renamed semantically — its data is now in `.claude/wires.json`).
+If `.claude/CLAUDE.md` contains a legacy fence block from the deprecated per-plugin wire — detect via `grep -q 'pb-git[n]exus:start' .claude/CLAUDE.md`; the block runs from the matching `:start` marker comment to its `:end` counterpart (the bracket expression keeps the deprecated plugin's name out of this repo while still matching the literal marker in project files) — remove it before writing the new `pb-hcf:` fence (handled inline in step 2). Report this as `migrated legacy wire fence → pb-hcf fence` in the completion output. Also clean up the deprecated wire's state file if present (glob `.claude/git[n]exus.json` — its data is now in `.claude/wires.json`).
 
 ### 4. Optional hook enrollment for pb-hcf bundled agents
 
@@ -121,7 +121,7 @@ pb-hcf ships 14 enrollable agents that together implement the **full** custom-wo
 | `post-plan-manual-test-plan` | `post-plan` | `50` | `single` | After `devils-advocate` finishes, mines `_plan.md` + per-task Requirements, derives user stories, posts a phased GH ticket comment + writes `.claude/test-plans/<ticket>.yml` per SCHEMA. Replaces workflow-build-feature step 6. |
 | `pre-implementation-incident-recall` | `pre-implementation` | `10` | `single` | Per-task Graphiti lookup of prior incidents in the touched area. PREPENDS findings to each `_task-NNN.md` so tdd-workers see them. Also copies `.claude/constitution.md` into the plan dir as `_constitution.md` once the plan dir exists. |
 | `issue-sentinel` | `post-batch` | `30` | `single` | Queries the central Bugsink error tracker for issues `first_seen` since this batch started (project + `HCF_RELEASE` filtered), triages via bricklayer `diagnose-error` where wired, returns PASS or PUSHBACK with `friendly_id` + stacktrace + suspected file:line. Falls back to a thin log scan when Bugsink is unreachable. First agent enrolled at the `post-batch` hook point. |
-| `gitnexus-reviewer` | `post-implementation` | `30` | `single` | Diff-impact review via GitNexus code graph (callers, plugins, observers, DI wiring). |
+| `codegraph-reviewer` | `post-implementation` | `30` | `single` | Diff-impact review via pb-codegraph code graph (callers, plugins, observers, DI wiring). |
 | `graphiti-reviewer` | `post-implementation` | `40` | `single` | Diff-vs-knowledge-graph review (prior decisions, incidents, vendor verdicts, planned work overlap). |
 | `mutation-tester` | `post-implementation` | `45` | `single` | Runs Infection mutation testing on the plan's changed PHP files only, gates on min-MSI, returns PASS or PUSHBACK listing surviving mutants (file:line + mutator) so tdd-workers strengthen assertions instead of gaming coverage. Runs once, after `graphiti-reviewer` (40), before `standards-enforcer` (50). |
 | `security-quorum` | `post-implementation` | `70` | `single` | 3-agent 2-of-3 security consensus (spawns its own trio: static-analyst, adversarial-tester, defensive-auditor). |
@@ -147,14 +147,14 @@ Detection order:
 In all three, the path must be **writable from host**. If not, abort with a clear message naming the path and the chown command to fix it.
 
 **To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example:
-- `/pb-hcf:wire --enable=pre-flight-check,gitnexus-reviewer,security-quorum` — minimal sane set
+- `/pb-hcf:wire --enable=pre-flight-check,codegraph-reviewer,security-quorum` — minimal sane set
 - `/pb-hcf:wire --enable-all` — enroll **all 14** (full workflow-build-feature replacement + verification spine)
 
 For each enrolled name (let `TARGET` = resolved target directory per above):
 
 1. **Idempotency check (skip-if-present-and-correct):**
    - If `$TARGET/<name>.md` **exists** AND its frontmatter declares `phase: <expected>` (matches the table above) → **skip silently** (`already enrolled — no action`).
-   - If `$TARGET/<name>.md` **exists** with a **different `phase`** → leave it untouched, **warn** that the user has expressed a deliberate choice (e.g. they moved gitnexus-reviewer from `post-implementation` to `post-batch`). Do NOT overwrite.
+   - If `$TARGET/<name>.md` **exists** with a **different `phase`** → leave it untouched, **warn** that the user has expressed a deliberate choice (e.g. they moved codegraph-reviewer from `post-implementation` to `post-batch`). Do NOT overwrite.
    - If `$TARGET/<name>.md` **does not exist** → continue to step 2.
 2. **Copy + stamp:**
    - Read the plugin's source agent at `$CLAUDE_PLUGIN_ROOT/agents/<name>.md` (this is the canonical body without `phase`).
@@ -180,7 +180,7 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
 | Magento project, no auto-test-plan posting | `--enable-all` then `rm $TARGET/post-plan-manual-test-plan.md` |
 | Non-Magento project, graphiti recall only | `--enable=pre-plan-graphiti-recall,graphiti-reviewer,pre-implementation-incident-recall` |
 | Security-focused only | `--enable=pre-flight-check,security-quorum,pre-commit-adversarial-pass` |
-| Minimal (just structural review) | `--enable=gitnexus-reviewer` |
+| Minimal (just structural review) | `--enable=codegraph-reviewer` |
 | Verification spine only (plan-quality + test-quality + runtime-error + pipeline-proof, no test-plan posting) | `--enable=pre-mortem,mutation-tester,issue-sentinel,pipeline-audit` |
 
 ### 5. Write `.claude/wires.json` registry
@@ -191,9 +191,9 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
   "pluginVersion": "<from $CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json>",
   "playbooks": [
     {
-      "name": "gitnexus",
-      "file": ".claude/gitnexus.md",
-      "probe": "http://gitnexus:4747/",
+      "name": "codegraph",
+      "file": ".claude/codegraph.md",
+      "probe": "pb-codegraph health --registry .ddev/pb-codegraph/registry.json",
       "reachable": true,
       "details": { "repos": ["mageos", "hyva", "deps"] }
     },
@@ -226,8 +226,8 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
   "enrollmentTargetSource": "ddev-mount",
   "enrollments": [
     {
-      "name": "gitnexus-reviewer",
-      "file": "/home/lucas/claude-code-magento-agents/gitnexus-reviewer.md",
+      "name": "codegraph-reviewer",
+      "file": "/home/lucas/claude-code-magento-agents/codegraph-reviewer.md",
       "phase": "post-implementation",
       "order": 30,
       "mode": "single",
@@ -255,27 +255,27 @@ List each created / modified / removed file with a one-line summary. Include rea
 - Flags:
   - `--reprobe` → re-run only the reachability probes, update `wires.json`, don't touch playbook files, CLAUDE.md, or the enrollment target.
   - `--no-overwrite` → skip diff prompts; leave existing playbook files untouched if they differ.
-  - `--migrate-only` → only run the legacy `pb-gitnexus:` fence migration step (step 3), don't install or probe anything.
+  - `--migrate-only` → only run the legacy wire-fence migration step (step 3), don't install or probe anything.
   - `--enable=<name>[,<name>]` → enroll the named pb-hcf bundled agent(s) into HCF's hook pipeline (see step 4 for full semantics and target-directory resolution).
-  - `--enable-all` → shorthand for enrolling all 14 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-manual-test-plan,pre-implementation-incident-recall,issue-sentinel,gitnexus-reviewer,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,pipeline-audit`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
+  - `--enable-all` → shorthand for enrolling all 14 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-manual-test-plan,pre-implementation-incident-recall,issue-sentinel,codegraph-reviewer,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,pipeline-audit`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
   - `--target=<host-path>` → override the auto-detected enrollment target directory. Useful for non-ddev projects or per-project enrollment overrides. Path must exist and be writable from host.
 
 ## Completion Output
 
 ```
 ✓ Installed N playbook(s) to .claude/:
-    - gitnexus.md (reachable, 3 repos indexed)
+    - codegraph.md (reachable, 3 repos indexed)
     - graphiti.md (reachable, Neo4j connected)
-✓ Updated fenced section in .claude/CLAUDE.md (pb-hcf, replaces legacy pb-gitnexus if present)
-✓ Migrated legacy pb-gitnexus fence (if found)
+✓ Updated fenced section in .claude/CLAUDE.md (pb-hcf, replaces legacy wire fence if present)
+✓ Migrated legacy wire fence (if found)
 ✓ Hook enrollments (.claude/agents/):
-    - gitnexus-reviewer  → post-implementation (order 30, mode single)   [newly enabled]
+    - codegraph-reviewer  → post-implementation (order 30, mode single)   [newly enabled]
     - security-quorum    → post-implementation (order 70, mode single)   [unchanged]
     (Pass --enable=<name>[,<name>] to add more, --enable-all for both bundled agents.)
 ✓ Wrote .claude/wires.json registry
 
 Reachability summary:
-  gitnexus  : ✓ http://gitnexus:4747/ (200, 3 repos)
+  codegraph : ✓ pb-codegraph health (green, 3 repos)
   graphiti  : ✓ mcp__graphiti__get_status (ok)
 
 Next: /hcf:plan-create as usual. HCF's agents will consult the per-domain

@@ -150,3 +150,41 @@ When a vulnerability is found, the report cites the codegraph impact result AND 
 After a FAIL verdict, the user addresses critical findings and re-runs the quorum on the same audit_target. The graphiti episode from the prior run surfaces in the Static Analyst's recall — the report should show "prior verdict was FAIL on these findings; current verdict is PASS — fixes confirmed at file:line".
 
 If the user is iterating multiple times, cap at 3 quorum runs per ticket to avoid runaway cost. After that, escalate to `team_security` for a deeper look.
+
+## Dependency & static-analysis intel (AP-5, 2026-08-03)
+
+Automated intel that augments the human-style quorum — you review *our code*;
+these scan what we depend on and known-bad patterns:
+
+### composer audit — known-CVE check (plan time)
+
+A daily monitor job (`dep-audit.sh`, central skills) already watches every
+in-scope project and posts a chatroom escalation on NEW advisories — so at plan
+time your question is just "is anything open right now?":
+
+```bash
+composer audit --locked        # in-container; host may lack private-repo auth
+```
+
+- A plan touching a package with an open advisory MUST say so and prefer the
+  patched version as part of the work.
+- CVEs are news, not gate-failures: an advisory appearing is never a reason to
+  block a commit — it is a reason to schedule the bump.
+
+### semgrep — SAST pass (security-sensitive diffs)
+
+Installed on the HOST (`~/.local/bin/semgrep`, venv-backed; not in containers —
+run host-side). For changes touching input handling, auth, SQL, file paths,
+serialization, crypto, or anything a quorum would care about:
+
+```bash
+semgrep --config p/php --config p/security-audit --metrics=off --quiet <changed-dirs>
+```
+
+- Fast (~6s over all of app/code/Uptactics on pps) — scan the module, not one file.
+- Findings are leads, not verdicts: verify each against the actual code path,
+  cite file:line, and fold confirmed ones into the quorum's findings with rule
+  id provenance.
+- Quorum specialists SHOULD run this as their static sweep opener; zero
+  findings is worth stating in the report ("semgrep p/php+p/security-audit
+  clean") as coverage evidence.

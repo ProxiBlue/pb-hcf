@@ -17,17 +17,37 @@ Register the project's Bugsink DSN first if you haven't (see `services/bugsink/R
 
 ## Configure via `env.php`
 
-Add (or merge into) `app/etc/env.php`:
+Add (or merge into) `app/etc/env.php`. **Verified against v4.6 on pps 2026-08-03**
+(v4 key names differ from older docs — `enabled` not `active`; see
+`Helper/Data.php::isActiveWithReason` for the gate logic):
 
 ```php
 'sentry' => [
-    'active' => true,
+    'enabled' => true,
     'dsn' => getenv('SENTRY_DSN'),
-    'environment' => 'ddev',
+    'environment' => 'ddev',              // 'production' on live
+    'log_level' => 400,                   // monolog ERROR and above
+    'mage_mode_development' => true,      // ddev ONLY — module refuses to send
+                                          // outside production mode without this.
+                                          // OMIT on live (runs production mode).
     'release' => getenv('HCF_RELEASE') ?: null,
+    'tracing_enabled' => false,
     'traces_sample_rate' => 0.0,
 ],
 ```
+
+**Plus one admin/store config flag, off by default — without it NOTHING sends:**
+
+```bash
+bin/magento config:set sentry/general/enable_php_tracking 1 && bin/magento cache:flush
+```
+
+**Smoke test** (CLI exceptions are captured via the module's console-command
+plugin): `bin/magento indexer:reindex not_a_real_indexer` → the
+`InvalidArgumentException` must appear as an issue in the Bugsink project within
+seconds. Note: hand-bootstrapped scripts (`Bootstrap::create` + logger) do NOT
+send — the SDK is initialized by `GlobalExceptionCatcher` around app/CLI launch
+only.
 
 Key wiring, one per line:
 

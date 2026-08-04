@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added (post-0.5.0, unreleased)
+
+- **`templates/playbooks/xhgui.md` — runtime-performance playbook (AP-1 wire consolidation).**
+  Absorbs the standalone `hcf-xhgui` skeleton into the multi-playbook wire. DDEV xhprof's
+  `xhgui` mode stores traces in MariaDB `xhgui.results`, so the playbook is pure SQL — no MCP
+  wrapper. Covers: URL wall-time/memory aggregates, trend, hotspot + SQL-query-count extraction
+  from the profile JSON, before/after regression compare via `perf-compare.sh` (central skills
+  `scripts/`), and the opt-in `perf-gate.sh` commit gate (`.claude/perf-gate.json`, fails
+  open). Head restructured to the standard `## Authority scope` + defer-to-siblings convention
+  (defers to codegraph / bricklayer / bugsink / prod-shape). Wire probe added (non-fatal,
+  two-part): `xhprof_mode` in `.ddev/config.yaml` + `SELECT COUNT(*) FROM xhgui.results`;
+  playbook installs unconditionally — it documents how to enable capture. pps was hand-wired
+  ahead of this (fence pointer already present); its `.claude/xhgui.md` predates AP-1 Phase
+  3/4 — re-run `/pb-hcf:wire` there to pick up the perf-compare/gate sections.
+
 ### Changed (post-0.5.0, unreleased)
 
 - **Code-graph backend swap: the legacy licensed code-graph tool → pb-codegraph (native).** The

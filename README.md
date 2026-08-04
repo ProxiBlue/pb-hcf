@@ -62,6 +62,7 @@ Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based h
 | `templates/playbooks/graphiti.md` | Discussion / decision / intent / planned-but-not-built questions (Graphiti MCP usage + 5-step search discipline). |
 | `templates/playbooks/security.md` | OWASP / vulnerability assessment + 3-specialist quorum 2-of-3 rule. |
 | `templates/playbooks/bricklayer.md` | Runtime-resolved truth (DI preferences, merged plugin chains, live EAV, actual DB schema, error triage) via the `inchoo/magento-bricklayer` MCP. Probe-gated install — only copied when `vendor/bin/bricklayer` is detected (see wire's bricklayer probe). |
+| `templates/playbooks/xhgui.md` | Runtime performance (page wall time / memory / SQL query count / function hotspots) via plain SQL against DDEV xhprof's `xhgui.results` trace table — no MCP needed. Includes the before/after regression compare (`perf-compare.sh`) and the opt-in `perf-gate.sh` commit gate. |
 | `templates/playbooks/playwright.md` (future) | E2E test design and coverage. |
 
 ### Other templates (not installed by wire — copy/consume directly)

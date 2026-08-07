@@ -1,11 +1,8 @@
 ---
 name: post-plan-playwright-bucket-split
-description: "pb-hcf post-plan agent — for each Rule-2 (UI-touching) task in the freshly created plan, splits the flat `## Requirements (Test Descriptions)` section into `## Requirements — JS unit` + `## Requirements — Playwright` buckets, classifying each existing requirement by whether it genuinely needs a real browser. Backfills `**Domain**:` frontmatter (checkout|payment|order|other). Self-verifies against playwright-floor-guard.sh and flags any floor-domain task it could not confidently bring to the ≥2 Playwright-item minimum for human review rather than fabricating weak assertions."
+description: "pb-hcf post-plan agent — for each Rule-2 (UI-touching) task in the freshly created plan, splits the flat `## Requirements (Test Descriptions)` section into `## Requirements — JS unit` + `## Requirements — Playwright` buckets, classifying each existing requirement by whether it genuinely needs a real browser. Backfills `**Domain**:` frontmatter (checkout|payment|order|other). Self-verifies against playwright-floor-guard.sh and flags any floor-domain task it could not confidently bring to the ≥2 Playwright-item minimum for human review rather than fabricating weak assertions. Enrolled at `post-plan`, order 15 — runs after devils-advocate (10), before pre-mortem (20) and post-plan-manual-test-plan (50)."
 model: sonnet
 tools: Read, Glob, Edit, Bash
-phase: post-plan
-order: 15
-mode: single
 ---
 
 # Post-plan Playwright bucket split

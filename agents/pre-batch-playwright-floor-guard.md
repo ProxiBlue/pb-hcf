@@ -1,11 +1,8 @@
 ---
 name: pre-batch-playwright-floor-guard
-description: "pb-hcf pre-batch agent — before every batch spawn (including the first), deterministically re-runs playwright-floor-guard.sh across the in-progress plan's task files. Catches a floor-domain task (checkout/payment/order/cart) whose Playwright requirements were thinned below the ≥2 minimum after post-plan-playwright-bucket-split ran — whether by a later manual edit or a prior batch's tdd-worker self-editing its own task file. Belt-and-suspenders companion to that post-plan agent; deterministic, not prose-based, per fleet standing rule (2026-08-05 directive)."
+description: "pb-hcf pre-batch agent — before every batch spawn (including the first), deterministically re-runs playwright-floor-guard.sh across the in-progress plan's task files. Catches a floor-domain task (checkout/payment/order/cart) whose Playwright requirements were thinned below the ≥2 minimum after post-plan-playwright-bucket-split ran — whether by a later manual edit or a prior batch's tdd-worker self-editing its own task file. Belt-and-suspenders companion to that post-plan agent; deterministic, not prose-based, per fleet standing rule (2026-08-05 directive). Enrolled at `pre-batch`, order 10 — first agent at this hook point."
 model: haiku
 tools: Read, Glob, Bash
-phase: pre-batch
-order: 10
-mode: single
 ---
 
 # Pre-batch Playwright floor guard

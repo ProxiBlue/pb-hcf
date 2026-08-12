@@ -32,7 +32,7 @@ pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/regi
 mcp__graphiti__get_status
 ```
 
-Record reachability in the final report header. Specialists handle their own re-checks; you just surface the state to the user.
+Retry up to 3x (0s/3s/6s backoff) before recording as unreachable — neo4j has a scheduled ~15-20s nightly backup-dump outage at 02:30 AWST that a single probe can catch mid-restart. Record reachability (and attempt count) in the final report header. Specialists handle their own re-checks; you just surface the state to the user.
 
 ## Step 2 — Round 1 (parallel)
 

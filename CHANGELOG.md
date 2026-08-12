@@ -26,6 +26,8 @@
 
 ### Changed (post-0.5.0, unreleased)
 
+- **Graphiti reachability probes gain backoff-retry (3 attempts, 0s/3s/6s) instead of a single unguarded `get_status` call.** Root-caused via `uptactics/m2_pvcpipesupplies#427` comment 5257349695 (2026-08-11 18:40 UTC): `pre-plan-graphiti-recall` skipped recall claiming "Neo4j backend is DOWN". Confirmed real — neo4j container logs show a deliberate `shutdown initiated by request` at 18:30:01 UTC (~18s restart window), timestamp-matched to the nightly `graphiti-backup` cron's offline-dump cycle (02:30 AWST = 18:30 UTC; heartbeat `2026-08-12T02:30:13+08:00`, `12s`), not a crash (RestartCount=0, no OOMKill). A single-shot probe landing in that ~15-20s window reads the whole stack as down even though it self-heals in seconds. Applied the same retry to all 6 places in this plugin that call `mcp__graphiti__get_status` bare: `pre-flight-check` (the BLOCK gate — most critical, was aborting plan-create outright on this blip), `pre-plan-graphiti-recall`, `pre-implementation-incident-recall`, `graphiti-reviewer`, `security-static-analyst`, `security-quorum`. Still-down-after-3-attempts behavior unchanged (fail open / SKIPPED, never hard-fails except pre-flight's existing BLOCK) — this only closes the false-negative window, doesn't change what happens on a genuine outage.
+
 - **Code-graph backend swap: the legacy licensed code-graph tool → pb-codegraph (native).** The
   fleet code graph now runs on pb-codegraph (https://github.com/ProxiBlue/pb-codegraph). All
   references to the previous licensed tool are purged from this repo:

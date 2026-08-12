@@ -22,13 +22,15 @@ You can also read the diff yourself: `git diff HEAD~1 HEAD` is typically empty h
 
 ## Process
 
-### Step 1 — Reachability
+### Step 1 — Reachability (with backoff-retry)
 
 ```bash
 mcp__graphiti__get_status
+# if not ok: sleep 3; retry
+# if not ok: sleep 6; retry
 ```
 
-Down → `STATUS: SKIPPED — graphiti unreachable, knowledge-graph review skipped, manual review recommended.` Don't block on infrastructure.
+3 attempts total — rides out neo4j's scheduled ~15-20s nightly backup-dump outage (02:30 AWST) instead of skipping on a lucky-timed single probe. Still down after 3 attempts → `STATUS: SKIPPED — graphiti unreachable after 3 attempts, knowledge-graph review skipped, manual review recommended.` Don't block on infrastructure.
 
 ### Step 2 — Scope
 

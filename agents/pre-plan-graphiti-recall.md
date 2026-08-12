@@ -19,13 +19,21 @@ No plan name yet (Phase 3 creates it).
 
 ## Process
 
-### Step 1 — Reachability sanity
+### Step 1 — Reachability sanity (with backoff-retry)
+
+Neo4j takes a scheduled ~15-20s offline-dump outage nightly at 02:30 AWST (backup cron) — a single failed `get_status` is more likely a transient blip than a real outage. Retry before giving up:
 
 ```bash
 mcp__graphiti__get_status
+# if status != ok:
+sleep 3
+mcp__graphiti__get_status
+# if status != ok:
+sleep 6
+mcp__graphiti__get_status
 ```
 
-If `status` is not `ok` → output `STATUS: SKIPPED — graphiti unreachable, no historical context available` and exit. Pre-flight check should have caught this; if you get here with graphiti down, fail open (plan-create proceeds with no recall).
+3 attempts, ~9s of backoff total (covers the known ~15-20s backup window when combined with call latency). If `status` is still not `ok` after the 3rd attempt → output `STATUS: SKIPPED — graphiti unreachable after 3 attempts, no historical context available` and exit. Fail open (plan-create proceeds with no recall). Note in the output how many attempts were made, so a genuine outage is distinguishable from a lucky first-try skip.
 
 ### Step 2 — Resolve scope
 

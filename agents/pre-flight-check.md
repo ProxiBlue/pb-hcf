@@ -47,11 +47,11 @@ For each line `<name>|<probe>`, run the appropriate probe:
 | Playbook | Probe | Pass criterion |
 |---|---|---|
 | `codegraph` | `pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/registry.json}"` then `mcp__pb-codegraph__list_repos` | exit 0 (`status: "green"`) + non-empty repo list |
-| `graphiti` | `mcp__graphiti__get_status` | `status: ok` |
+| `graphiti` | `mcp__graphiti__get_status`, retry up to 3x (0s, 3s, 6s backoff) before failing — neo4j has a scheduled ~15-20s nightly backup-dump outage (02:30 AWST) that a single probe can catch mid-restart | `status: ok` on any attempt |
 | `security` | No standalone probe; inherits from `codegraph` + `graphiti` | n/a |
 | Any other | If the probe string starts with `http`, curl it; if it starts with `mcp__`, call that MCP tool. Pass = whatever the playbook entry's wires.json `expected` shape allows (just check it returns without error if no expected is recorded). | best-effort |
 
-A failed probe is a **BLOCK** (don't plan against a half-up stack — output is unreliable). Cite the playbook name, the probe that failed, and the recommended fix (DDEV restart, MCP server up, etc.).
+A probe that still fails after its retries (graphiti: 3 attempts) is a **BLOCK** (don't plan against a half-up stack — output is unreliable). Cite the playbook name, the probe that failed, how many attempts were made, and the recommended fix (DDEV restart, MCP server up, etc.).
 
 ### Step 3 — Protected-branch check
 

@@ -44,13 +44,15 @@ pipeline where the plan dir provably exists, so this is where the copy happens.
 This step runs independently of Steps 1–2 (graphiti reachability) below — the constitution copy
 has nothing to do with graphiti and must not be skipped just because graphiti is down.
 
-### Step 1 — Reachability sanity
+### Step 1 — Reachability sanity (with backoff-retry)
 
 ```bash
 mcp__graphiti__get_status
+# if not ok: sleep 3; retry
+# if not ok: sleep 6; retry
 ```
 
-If down → `STATUS: SKIPPED — graphiti unreachable, no per-task recall.` Exit. Workers proceed unchanged.
+3 attempts total — rides out neo4j's scheduled ~15-20s nightly backup-dump outage (02:30 AWST) instead of skipping on a lucky-timed single probe. If still down after 3 attempts → `STATUS: SKIPPED — graphiti unreachable after 3 attempts, no per-task recall.` Exit. Workers proceed unchanged.
 
 ### Step 2 — Scope
 

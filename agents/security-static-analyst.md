@@ -35,7 +35,7 @@ pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/regi
 
 If codegraph is unreachable: note the limitation in your evidence_for_vote, proceed with code-only static analysis.
 
-For graphiti context:
+For graphiti context (retry up to 3x, 0s/3s/6s backoff, before treating as unreachable — neo4j has a scheduled ~15-20s nightly backup-dump outage at 02:30 AWST):
 ```
 mcp__graphiti__get_status
 ```

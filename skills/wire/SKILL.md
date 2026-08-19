@@ -113,7 +113,7 @@ If `.claude/CLAUDE.md` contains a legacy fence block from the deprecated per-plu
 
 ### 4. Optional hook enrollment for pb-hcf bundled agents
 
-pb-hcf ships 16 enrollable agents that together implement the **full** custom-workflow that `/proxiblue-skills:workflow-build-feature` used to orchestrate as a wrapper, plus the verification-spine additions from the v0.5.0 release (prospective failure analysis, mutation testing, runtime error triage, pipeline-firing proof) and the JS-unit-first Playwright-floor pair (post-0.5.0). Each agent enrolls at a specific HCF v2 hook so vanilla `/hcf:plan-create` + `/hcf:plan-orchestrate` execute the entire flow — no wrapping skill required.
+pb-hcf ships 17 enrollable agents that together implement the **full** custom-workflow that `/proxiblue-skills:workflow-build-feature` used to orchestrate as a wrapper, plus the verification-spine additions from the v0.5.0 release (prospective failure analysis, mutation testing, runtime error triage, pipeline-firing proof), the JS-unit-first Playwright-floor pair (post-0.5.0), and `simplify-pass` (over-engineering/reuse review — the pipeline's structural/security/mutation reviewers never covered this axis; see CHANGELOG). Each agent enrolls at a specific HCF v2 hook so vanilla `/hcf:plan-create` + `/hcf:plan-orchestrate` execute the entire flow — no wrapping skill required.
 
 | Agent | `phase` | `order` | `mode` | What it does |
 |---|---|---|---|---|
@@ -125,6 +125,7 @@ pb-hcf ships 16 enrollable agents that together implement the **full** custom-wo
 | `pre-implementation-incident-recall` | `pre-implementation` | `10` | `single` | Per-task Graphiti lookup of prior incidents in the touched area. PREPENDS findings to each `_task-NNN.md` so tdd-workers see them. Also copies `.claude/constitution.md` into the plan dir as `_constitution.md` once the plan dir exists. |
 | `pre-batch-playwright-floor-guard` | `pre-batch` | `10` | `single` | Deterministic re-check of `playwright-floor-guard.sh` before every batch spawn (fires on iteration 1 too — no separate `pre-implementation` companion needed). Catches a floor-domain task thinned below the minimum after `post-plan-playwright-bucket-split` ran. `STATUS: BLOCK` names the specific task(s) to exclude; does not self-fix. First agent enrolled at the `pre-batch` hook point. |
 | `issue-sentinel` | `post-batch` | `30` | `single` | Queries the central Bugsink error tracker for issues `first_seen` since this batch started (project + `HCF_RELEASE` filtered), triages via bricklayer `diagnose-error` where wired, returns PASS or PUSHBACK with `friendly_id` + stacktrace + suspected file:line. Falls back to a thin log scan when Bugsink is unreachable. First agent enrolled at the `post-batch` hook point. |
+| `simplify-pass` | `post-implementation` | `25` | `single` | Reuse/simplification/efficiency/altitude review of the plan's diff — over-built abstractions, duplicated logic, dead configurability. Runs before `codegraph-reviewer` (30) so structural review isn't spent on scaffolding likely to get deleted. Returns PASS or PUSHBACK (advisory, non-blocking) with file:line + a suggested cut per finding. |
 | `codegraph-reviewer` | `post-implementation` | `30` | `single` | Diff-impact review via pb-codegraph code graph (callers, plugins, observers, DI wiring). |
 | `graphiti-reviewer` | `post-implementation` | `40` | `single` | Diff-vs-knowledge-graph review (prior decisions, incidents, vendor verdicts, planned work overlap). |
 | `mutation-tester` | `post-implementation` | `45` | `single` | Runs Infection mutation testing on the plan's changed PHP files only, gates on min-MSI, returns PASS or PUSHBACK listing surviving mutants (file:line + mutator) so tdd-workers strengthen assertions instead of gaming coverage. Runs once, after `graphiti-reviewer` (40), before `standards-enforcer` (50). |
@@ -136,7 +137,7 @@ pb-hcf ships 16 enrollable agents that together implement the **full** custom-wo
 
 (The 3 security specialists — `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor` — are library agents spawned BY `security-quorum` at runtime. They do NOT declare a `phase` themselves and are NOT in the enrollable list.)
 
-**Default: nothing is enrolled.** All 16 agents ship dormant in `$PLUGIN/agents/<name>.md` without `phase` — visible to `Task` but not auto-fired in the pipeline (mirrors how HCF ships `standards-enforcer` with its `phase` commented out).
+**Default: nothing is enrolled.** All 17 agents ship dormant in `$PLUGIN/agents/<name>.md` without `phase` — visible to `Task` but not auto-fired in the pipeline (mirrors how HCF ships `standards-enforcer` with its `phase` commented out).
 
 ### Target-directory resolution (host-side, fleet-aware)
 
@@ -152,7 +153,7 @@ In all three, the path must be **writable from host**. If not, abort with a clea
 
 **To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example:
 - `/pb-hcf:wire --enable=pre-flight-check,codegraph-reviewer,security-quorum` — minimal sane set
-- `/pb-hcf:wire --enable-all` — enroll **all 16** (full workflow-build-feature replacement + verification spine + Playwright-floor pair)
+- `/pb-hcf:wire --enable-all` — enroll **all 17** (full workflow-build-feature replacement + verification spine + Playwright-floor pair + simplify-pass)
 
 For each enrolled name (let `TARGET` = resolved target directory per above):
 
@@ -261,7 +262,7 @@ List each created / modified / removed file with a one-line summary. Include rea
   - `--no-overwrite` → skip diff prompts; leave existing playbook files untouched if they differ.
   - `--migrate-only` → only run the legacy wire-fence migration step (step 3), don't install or probe anything.
   - `--enable=<name>[,<name>]` → enroll the named pb-hcf bundled agent(s) into HCF's hook pipeline (see step 4 for full semantics and target-directory resolution).
-  - `--enable-all` → shorthand for enrolling all 16 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-playwright-bucket-split,post-plan-manual-test-plan,pre-implementation-incident-recall,pre-batch-playwright-floor-guard,issue-sentinel,codegraph-reviewer,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,pipeline-audit`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
+  - `--enable-all` → shorthand for enrolling all 17 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-playwright-bucket-split,post-plan-manual-test-plan,pre-implementation-incident-recall,pre-batch-playwright-floor-guard,issue-sentinel,simplify-pass,codegraph-reviewer,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,pipeline-audit`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
   - `--target=<host-path>` → override the auto-detected enrollment target directory. Useful for non-ddev projects or per-project enrollment overrides. Path must exist and be writable from host.
 
 ## Completion Output

@@ -58,7 +58,7 @@ This table is the single source of truth for "known, file-writing" agents. Keep 
 
 ### Step 3 — Inline-only reviewers: commit trailer / verdict log fallback
 
-`codegraph-reviewer`, `graphiti-reviewer`, `security-quorum`, `pre-commit-adversarial-pass`, and `standards-enforcer` (HCF-owned) write NO plan-dir file — by design, they return `STATUS: PASS|PUSHBACK|BLOCK` inline to the orchestrator. An inline-only reviewer that fired is NOT a silent skip just because Step 2's table has no artefact for it. It gets a fair look via two fallback evidence channels, tried in order:
+`simplify-pass`, `codegraph-reviewer`, `graphiti-reviewer`, `security-quorum`, `pre-commit-adversarial-pass`, and `standards-enforcer` (HCF-owned) write NO plan-dir file — by design, they return `STATUS: PASS|PUSHBACK|BLOCK` inline to the orchestrator. An inline-only reviewer that fired is NOT a silent skip just because Step 2's table has no artefact for it. It gets a fair look via two fallback evidence channels, tried in order:
 
 1. **Commit trailer** — `git log -1 --format=%B` on the HEAD commit that just landed. Look for a trailer line naming the agent (e.g. `Reviewed-by: codegraph-reviewer` or `<agent-name>: PASS`). A match IS evidence — cite the trailer line.
 2. **Verdict log** — any per-run verdict record another agent already persisted for this run (e.g. `post-commit-build-summary`'s captured "Post-implementation hooks" block, if written to disk, or a project-local `.claude/logs/<plan-name>.log` if one exists). A match IS evidence — cite the log path + line.

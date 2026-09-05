@@ -113,7 +113,7 @@ If `.claude/CLAUDE.md` contains a legacy fence block from the deprecated per-plu
 
 ### 4. Optional hook enrollment for pb-hcf bundled agents
 
-pb-hcf ships 17 enrollable agents that together implement the **full** custom-workflow that `/proxiblue-skills:workflow-build-feature` used to orchestrate as a wrapper, plus the verification-spine additions from the v0.5.0 release (prospective failure analysis, mutation testing, runtime error triage, pipeline-firing proof), the JS-unit-first Playwright-floor pair (post-0.5.0), and `simplify-pass` (mandatory over-engineering/reuse/comment-noise simplify→test loop — the pipeline's structural/security/mutation reviewers never covered this axis; see CHANGELOG). Each agent enrolls at a specific HCF v2 hook so vanilla `/hcf:plan-create` + `/hcf:plan-orchestrate` execute the entire flow — no wrapping skill required.
+pb-hcf ships 18 enrollable agents that together implement the **full** custom-workflow that `/proxiblue-skills:workflow-build-feature` used to orchestrate as a wrapper, plus the verification-spine additions from the v0.5.0 release (prospective failure analysis, mutation testing, runtime error triage, pipeline-firing proof), the JS-unit-first Playwright-floor pair (post-0.5.0), and `simplify-pass` (mandatory over-engineering/reuse/comment-noise simplify→test loop — the pipeline's structural/security/mutation reviewers never covered this axis; see CHANGELOG). Each agent enrolls at a specific HCF v2 hook so vanilla `/hcf:plan-create` + `/hcf:plan-orchestrate` execute the entire flow — no wrapping skill required.
 
 | Agent | `phase` | `order` | `mode` | What it does |
 |---|---|---|---|---|
@@ -133,6 +133,7 @@ pb-hcf ships 17 enrollable agents that together implement the **full** custom-wo
 | `pre-commit-adversarial-pass` | `pre-commit` | `10` | `single` | One last adversarial-tester pass on the staged diff after tests pass, before commit. Also judges `scripts/rector-check.sh`'s contested transforms. Returns PASS or DEFER (advisory; doesn't block commit). |
 | `post-commit-verify-handoff` | `post-commit` | `10` | `single` | Prints the fresh-thread instruction for `/verify-feature` (skill convention). |
 | `post-commit-build-summary` | `post-commit` | `20` | `single` | Prints the BUILD COMPLETE summary aggregating every hook's verdict + deferred concerns + ready-to-deploy guidance. Replaces workflow-build-feature step 13. |
+| `post-commit-build-timing` | `post-commit` | `30` | `single` | Reads `_timing.jsonl` (written by `plan-orchestrate`'s Build Timing bookkeeping) and prints a BUILD TIMING & ANALYTICS report: total wall time, per-phase duration table, slowest phase(s), per-batch breakdown, and evidence-based improvement notes. Runs after `post-commit-build-summary` (20) so the correctness summary prints first. |
 | `pipeline-audit` | `post-commit` | `90` | `single` | Proves which enrolled pipeline phases actually fired vs silently skipped this run, by mapping `.claude/wires.json` enrollments to documented evidence artefacts. Runs last (tail of the pipeline) so any artefact another agent wrote already exists. Mechanizes the hcf-build-integration-gaps lesson. |
 
 (The 3 security specialists — `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor` — are library agents spawned BY `security-quorum` at runtime. They do NOT declare a `phase` themselves and are NOT in the enrollable list.)
@@ -153,7 +154,7 @@ In all three, the path must be **writable from host**. If not, abort with a clea
 
 **To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example:
 - `/pb-hcf:wire --enable=pre-flight-check,codegraph-reviewer,security-quorum` — minimal sane set
-- `/pb-hcf:wire --enable-all` — enroll **all 17** (full workflow-build-feature replacement + verification spine + Playwright-floor pair + simplify-pass)
+- `/pb-hcf:wire --enable-all` — enroll **all 18** (full workflow-build-feature replacement + verification spine + Playwright-floor pair + simplify-pass + build timing)
 
 For each enrolled name (let `TARGET` = resolved target directory per above):
 
@@ -262,7 +263,7 @@ List each created / modified / removed file with a one-line summary. Include rea
   - `--no-overwrite` → skip diff prompts; leave existing playbook files untouched if they differ.
   - `--migrate-only` → only run the legacy wire-fence migration step (step 3), don't install or probe anything.
   - `--enable=<name>[,<name>]` → enroll the named pb-hcf bundled agent(s) into HCF's hook pipeline (see step 4 for full semantics and target-directory resolution).
-  - `--enable-all` → shorthand for enrolling all 17 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-playwright-bucket-split,post-plan-manual-test-plan,pre-implementation-incident-recall,pre-batch-playwright-floor-guard,issue-sentinel,simplify-pass,codegraph-reviewer,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,pipeline-audit`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
+  - `--enable-all` → shorthand for enrolling all 18 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-playwright-bucket-split,post-plan-manual-test-plan,pre-implementation-incident-recall,pre-batch-playwright-floor-guard,issue-sentinel,simplify-pass,codegraph-reviewer,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,post-commit-build-timing,pipeline-audit`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
   - `--target=<host-path>` → override the auto-detected enrollment target directory. Useful for non-ddev projects or per-project enrollment overrides. Path must exist and be writable from host.
 
 ## Completion Output

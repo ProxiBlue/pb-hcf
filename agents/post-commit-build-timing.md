@@ -85,6 +85,37 @@ rather than silently omitting it or inventing a duration.
 Format every duration as `Xm Ys` (or `Xs` under a minute). Never report a
 percentage or duration you didn't compute from an actual ts pair.
 
+### Step 2b — Active vs idle (test-gate evidence cross-reference)
+
+Wall time alone lies: phase windows include human absence and stalled
+workers. Cross-reference each window against the test-gate evidence journal,
+which records every real test-runner execution with a UTC timestamp:
+
+```bash
+EF="$(git rev-parse --path-format=absolute --git-common-dir)/claude-test-gate/evidence.jsonl"
+```
+
+Each line is `{"type":"test","family":"unit"|"e2e","ts":"2026-09-18T21:56:03Z","cmd":"..."}`
+(ignore `type:"commit"` lines). If the file is missing, print one line
+`(no evidence.jsonl — active/idle breakdown unavailable)` and skip this step.
+
+For each `batch-workers` window, the `post-implementation` window and the
+`test-suite` window, compute:
+
+- **test runs** inside the window (count), split unit / e2e;
+- **largest quiet gap** = the longest interval with no test run, including
+  window-start→first-run and last-run→window-end;
+- flag the window when the quiet gap exceeds 30 minutes.
+
+Measured reference (2026-09-21, pvcpipesupplies): a 5.2h single-task batch
+held 7 test runs and one 294-min gap; a "7.3h test suite" held 6 runs with the
+last one 349 min before the end marker. In both cases the time was idle
+workers or a paused session, not test execution — the report must say so
+rather than recommend "speed up the tests".
+
+Add the counts and gap to the per-batch lines and to the test-suite line in
+Step 3, e.g. `batch 4   1 task   5h 10m   [7 test runs, quiet gap 294m ⚠]`.
+
 ### Step 3 — Print the report
 
 ```
@@ -126,7 +157,13 @@ Only include a note when the timing data actually supports it — cite the
 number. Candidates, in priority order (include whichever apply, skip the
 rest — do not pad the list to look thorough):
 
-1. **Test suite dominates** (>30% of total): "Test suite took {dur} ({pct}% of
+0. **Idle, not work** (any window with a quiet gap > 30 min from Step 2b):
+   "{window} spent {gap} with no test run ({N} runs in {dur}) — that is a
+   stalled/idle worker or a paused session, not test cost. Check the
+   plan-orchestrate worker-liveness rule fired; do not optimise the suite for
+   this." This note takes precedence over 1 and 4 for the same window.
+1. **Test suite dominates** (>30% of total AND Step 2b shows the runs
+   actually filled the window): "Test suite took {dur} ({pct}% of
    total) — investigate whether it can be scoped to changed files or run with
    more parallelism (see testing.md's parallel test command)."
 2. **Review/hook phase dominates** (`post-implementation` or `pre-commit-hook`

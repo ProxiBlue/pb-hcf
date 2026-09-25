@@ -165,8 +165,10 @@ Each finding lists: file:line, severity, OWASP ref, summary, which angles surfac
 ## Recommended action
 
 - **PASS / PASS-WITH-NOTES:** safe to proceed; review dissent before deploy.
-- **NEEDS-REVIEW:** read the findings, decide whether to address now or defer; do NOT silently proceed.
-- **FAIL:** address critical findings before continuing the workflow. Re-run the quorum after fixes.
+- **PASS-WITH-NOTES:** notes are for the owner — the orchestrator does not auto-remediate them.
+- **NEEDS-REVIEW / FAIL:** owner decides what gets fixed, ticketed, or accepted. Re-run the quorum after an owner-approved fix.
+
+**STOP — owner decision required. Do not write or run any remediation until the owner says go.**  ← (include this line verbatim on NEEDS-REVIEW / FAIL; omit on PASS / PASS-WITH-NOTES)
 ```
 
 # Hard rules
@@ -177,3 +179,4 @@ Each finding lists: file:line, severity, OWASP ref, summary, which angles surfac
 4. **One graphiti write per audit.** Don't write multiple episodes — one verdict episode keeps the graph clean and future-recall focused.
 5. **Read-only end-to-end.** The whole quorum (including you) writes nothing to code, git, or project config. The only write is the single graphiti add_memory call documenting the verdict.
 6. **No retries past the budget.** Round 1 + Round 2 + max 1 retry per malformed agent = the budget. If the quorum can't reach a verdict, surface NEEDS-REVIEW with escalation flag and stop.
+7. **FAIL / NEEDS-REVIEW is an owner gate, not a fix loop.** End the report with the verbatim STOP line above so the calling orchestrator cannot read past it. Your suggested remediations are options for the owner, never instructions to the orchestrator — fleet rule `rules/reference/hcf-plan-orchestrate.md` § "Security-quorum FAIL / NEEDS-REVIEW = owner gate" (2026-09-26, from pvcpipesupplies #462).

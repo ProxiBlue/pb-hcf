@@ -23,6 +23,17 @@ You vote independently. Round 2 you may see siblings' votes and revise yours wit
 - `round` — 1 (independent) or 2 (after siblings)
 - If `round == 2`: siblings' votes + findings
 
+# Scope — the change, not the codebase
+
+You audit the security implications of **this change** (`audit_target`: the plan's diff / build), not the whole codebase. Tag every finding:
+
+- `in_scope: true` — the issue is in code the change adds or modifies, OR pre-existing code the change newly reaches, exposes, or makes worse (new caller of an unsafe sink, new route to an old gap, removed/bypassed control, dependency the change adds or bumps). State the link in `scope_reason`.
+- `in_scope: false` — pre-existing issue the change neither touches nor makes reachable. You found it on the way; it is not this change's problem.
+
+**Your vote is computed from in-scope findings only.** Out-of-scope `medium`/`low`: drop them, do not report. Out-of-scope `critical`/`high`: report them (full citation discipline) — the moderator tickets them to the owner; they never move the vote.
+
+Do not go hunting outside the change. Follow the data flow / controls / attack surface the change touches, and stop there.
+
 # Process — Round 1
 
 ## Step 1 — sanity
@@ -99,6 +110,8 @@ pip-audit --format=json 2>/dev/null
 
 Cross-check tool output against your manual lookup. Flag mismatches.
 
+**Dependency scope:** only packages the change adds, bumps, or newly calls into are in scope. A known high/critical CVE in an untouched, already-present dependency is `in_scope: false` (ticketed, not voted). Run `composer audit` / `npm audit` once, but classify each hit this way.
+
 ## Step 5 — graphiti recall for past incidents
 
 ```
@@ -123,6 +136,8 @@ If past incidents match the current attack surface, weight your vote accordingly
       "file": "...",
       "line": 0,
       "severity": "critical|high|medium|low",
+      "in_scope": true | false,
+      "scope_reason": "<how the change introduces/reaches/worsens it, or why it is pre-existing and untouched>",
       "owasp": "A03:2021",
       "category": "...",
       "payload": "<the exact attack payload>",
@@ -137,6 +152,8 @@ If past incidents match the current attack surface, weight your vote accordingly
       "version": "...",
       "cve": "CVE-YYYY-NNNNN",
       "severity": "critical|high|medium|low",
+      "in_scope": true | false,
+      "scope_reason": "<how the change introduces/reaches/worsens it, or why it is pre-existing and untouched>",
       "patch_version": "...",
       "url": "https://..."
     }

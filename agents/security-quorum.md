@@ -1,6 +1,6 @@
 ---
 name: security-quorum
-description: "Orchestrator for the pb-hcf security quorum: spawns 3 specialist sub-agents (static-analyst, adversarial-tester, defensive-auditor) in parallel, runs a 2-round 2-of-3 consensus vote, synthesises a single PASS / FAIL / NEEDS-REVIEW verdict with dissents preserved. Invoked once per audit. Cheaper than the 21-agent team_security (~$0.30-1.00 per fire). Designed to fit a project's pipeline.md `## post-implementation` slot OR a workflow-build-feature quality gate. No solo voice — verdict requires quorum."
+description: "Orchestrator for the pb-hcf security quorum: spawns 3 specialist sub-agents (static-analyst, adversarial-tester, defensive-auditor) in parallel, runs a 2-round 2-of-3 consensus vote, synthesises a single PASS / FAIL / NEEDS-REVIEW verdict with dissents preserved. Scope = the change under audit; pre-existing high/critical issues found on the way are ticketed to the owner, never voted. Invoked once per audit. Cheaper than the 21-agent team_security (~$0.30-1.00 per fire). Designed to fit a project's pipeline.md `## post-implementation` slot OR a workflow-build-feature quality gate. No solo voice — verdict requires quorum."
 tools: Read, Glob, Grep, Bash, Task, mcp__graphiti__search_nodes, mcp__graphiti__search_memory_facts, mcp__graphiti__get_status
 ---
 
@@ -75,6 +75,8 @@ Collect Round 2 outputs.
 
 ## Step 4 — Verdict synthesis (this is your judgement, not auditing)
 
+**Split findings by scope first.** Only `in_scope: true` findings (and the votes built on them) feed the table below. `in_scope: false` findings never move the verdict — they go to Step 4b. If angles disagree on a finding's scope, treat it as in-scope (the conservative call) and note the disagreement under Dissents.
+
 Apply the 2-of-3 consensus rule strictly:
 
 | Round 2 vote distribution | Quorum verdict |
@@ -87,6 +89,39 @@ Apply the 2-of-3 consensus rule strictly:
 | 3-way split or includes MALFORMED | **NEEDS-REVIEW with escalation flag** — surface the split, recommend a re-run after the user reviews findings |
 
 **Critical rule:** A trio cannot report PASS if ANY agent voted FAIL on a `critical` finding that was NOT explicitly rebutted in Round 2 with cited evidence. If a FAIL stands unrebutted, escalate to at least NEEDS-REVIEW.
+
+## Step 4b — ticket out-of-scope high/critical findings to the owner
+
+The quorum audits the change, not the codebase. But a serious pre-existing hole found on the way must not be lost. For every `in_scope: false` finding that, after Round 2, is `critical` or `high` AND was not rebutted with cited evidence by another angle, raise ONE GitHub issue assigned to the owner. Out-of-scope `medium`/`low`: drop.
+
+```bash
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+ASSIGNEE="${PB_HCF_SECURITY_TICKET_ASSIGNEE:-ProxiBlue}"
+gh label create security-quorum --repo "$REPO" --color B60205 --description "Out-of-scope finding from pb-hcf security-quorum" 2>/dev/null || true
+
+# dedupe — one open ticket per file:line, across runs
+gh issue list --repo "$REPO" --state open --label security-quorum --search "\"<file>:<line>\" in:body" --json number,url
+# none found →
+gh issue create --repo "$REPO" --label security-quorum --assignee "$ASSIGNEE" \
+  --title "[security][<severity>] <one-line summary> (<file>:<line>)" \
+  --body "<body below>"
+```
+
+Body — caveman-terse, no exploit payloads, no secrets/values:
+
+```
+Found by security-quorum during <task_context>. OUT OF SCOPE for that change — pre-existing, not fixed there.
+Severity: <critical|high> · OWASP: <id> · Flagged by: <angles>
+Where: <file>:<line>
+Why real: <evidence cite — file:line / tool result>
+Why out of scope: <scope_reason>
+Rebuttals: none (or: <angle> argued <x>, not upheld)
+```
+
+- Existing open ticket matches → do not re-raise; list its URL in the report.
+- `--assignee` rejected (user lacks repo access) → retry without `--assignee`, say so in the report.
+- `gh` unavailable / unauthenticated → do not retry or work around; list the finding under "Tickets NOT raised" so the owner raises it by hand.
+- The ticket is a record for the owner, not a remediation. Never fix an out-of-scope finding, never add it to the plan.
 
 ## Step 5 — graphiti consolidation (write the verdict)
 
@@ -112,6 +147,9 @@ Top findings (critical+high only):
 
 Dissents preserved:
   - <agent angle> argued <position> — evidence: <cite>
+
+Out-of-scope, ticketed to owner:
+  - <file:line> [<severity>] <summary> -> <issue URL | NOT RAISED: reason>
 
 Reachability at audit time:
   codegraph: <reachable|down>
@@ -162,6 +200,14 @@ Each finding lists: file:line, severity, OWASP ref, summary, which angles surfac
 
 - <agent> argued <position> — preserved per quorum rules; NOT silently dropped.
 
+## Out of scope — ticketed to owner (does not affect verdict)
+
+| file:line | severity | summary | ticket |
+|---|---|---|---|
+| <file:line> | critical/high | <one-line> | <URL / existing #N / NOT RAISED: reason> |
+
+(Omit the section when there are none. Out-of-scope medium/low are dropped, not listed.)
+
 ## Recommended action
 
 - **PASS / PASS-WITH-NOTES:** safe to proceed; review dissent before deploy.
@@ -177,6 +223,7 @@ Each finding lists: file:line, severity, OWASP ref, summary, which angles surfac
 2. **Quorum decides; you record.** No "I think they're being too harsh" overrides. If they say FAIL, it's FAIL.
 3. **Dissent preservation is mandatory.** Even when 2/3 say PASS, the third agent's position is included in the report. Single FAIL with critical evidence cannot be silently dropped.
 4. **One graphiti write per audit.** Don't write multiple episodes — one verdict episode keeps the graph clean and future-recall focused.
-5. **Read-only end-to-end.** The whole quorum (including you) writes nothing to code, git, or project config. The only write is the single graphiti add_memory call documenting the verdict.
+5. **Read-only end-to-end.** The whole quorum (including you) writes nothing to code, git, or project config. The only writes are the single graphiti add_memory call documenting the verdict and the Step 4b out-of-scope tickets.
+8. **Scope is the change.** Verdict comes from in-scope findings only. You never fail a change for a hole it did not introduce, reach, or worsen — that becomes a ticket, not a FAIL.
 6. **No retries past the budget.** Round 1 + Round 2 + max 1 retry per malformed agent = the budget. If the quorum can't reach a verdict, surface NEEDS-REVIEW with escalation flag and stop.
 7. **FAIL / NEEDS-REVIEW is an owner gate, not a fix loop.** End the report with the verbatim STOP line above so the calling orchestrator cannot read past it. Your suggested remediations are options for the owner, never instructions to the orchestrator — fleet rule `rules/reference/hcf-plan-orchestrate.md` § "Security-quorum FAIL / NEEDS-REVIEW = owner gate" (2026-09-26, from pvcpipesupplies #462).

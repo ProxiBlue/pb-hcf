@@ -127,3 +127,13 @@ You do NOT modify any files. You do NOT update task or plan status. You do NOT a
 - Speed matters; this review runs once per plan. Don't spelunk files the diff didn't touch.
 
 Cite the codegraph tool + symbol for every concern. Empty concerns sections under PUSHBACK = use PASS instead.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) codegraph-reviewer post-implementation/30: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|PUSHBACK|SKIPPED. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

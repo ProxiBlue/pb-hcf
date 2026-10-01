@@ -123,3 +123,13 @@ Plan-create checks for `STATUS: BLOCK` in your output and aborts before Phase 1 
 - Cite paths and exact commands; no hand-waving.
 - A probe that's slow but eventually returns OK is a PASS. A probe that times out is a BLOCK.
 - Don't try to fix things yourself — your job is to gate, not to repair. Tell the user what's wrong and how to fix it; let them act.
+
+## Final step — append your hook verdict line (artefact contract)
+
+Your output is prose returned to plan-create; it leaves nothing on disk, so `pipeline-audit` cannot see that you fired unless you leave this line. As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line. No plan dir exists yet at `pre-plan`, so write to the plan-agnostic pre-plan log (`pipeline-audit` matches it to the plan by timestamp window):
+
+```bash
+mkdir -p .claude/plans && echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) pre-flight-check pre-plan/5: <VERDICT> — <feature topic in ≤8 words; one line>" >> .claude/plans/_pre_plan_verdicts.md
+```
+
+`<VERDICT>`: PASS|WARN|BLOCK. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

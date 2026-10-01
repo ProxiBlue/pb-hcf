@@ -34,9 +34,11 @@ Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based h
 | `pre-flight-check` | `pre-plan` | 5 | single | Verifies onboarding artifacts (`.claude/CLAUDE.md`, `.claude/testing.md`, `.claude/wires.json`, pb-hcf fence). Loops `wires.json` probes. **Refuses to run on protected branches** (`live` / `uat` / `main` / `master`). WARNs (not BLOCKs) if `.claude/constitution.md` is missing. Returns PASS / WARN / BLOCK — BLOCK aborts plan-create. |
 | `pre-plan-graphiti-recall` | `pre-plan` | 10 | single | Extracts topic keywords from the user's feature request, searches Graphiti (`search_memory_facts` + `search_nodes`) across `[project-id, fleet]` group_ids, returns Historical Context block with cited episode UUIDs — prior decisions, past incidents, vendor verdicts, planned-but-not-built. Guarantees foresight before HCF Phase 1 Discovery runs. |
 | `pre-mortem` | `post-plan` | 20 | single | Assumes the freshly created plan ALREADY FAILED in production and works backwards to the most plausible causes, ranked by likelihood × blast radius, then verifies each against the plan's task requirements as CONFIRMED-COVERED or UNCOVERED. Distinct lens from `devils-advocate` (gap-finding forward from the plan vs failure-backwards from an assumed incident). Runs after `devils-advocate` (10), before `post-plan-manual-test-plan` (50). |
+| `post-plan-dag-check` | `post-plan` | 30 | single | Layers the task DAG from `**Depends on**:` lines (script, not prose), prints the tree + batch widths, flags each size-1 batch (except the final integration/README task) "is this dependency real?", auto-moves additive observability/logging/instrumentation tasks to batch 1 unless they import code an earlier task creates. Writes `_dag_check.md`. Origin: #519 — 10 of 12 batches single-task, ~5h serial wall. |
 | `post-plan-manual-test-plan` | `post-plan` | 50 | single | After `devils-advocate` (HCF bundled, order 10), mines `_plan.md` + per-task Requirements, derives user stories, posts a phased GH ticket comment (via `gh-comment-hidden.sh` helper — caveman + minimised as off-topic per fleet rule), writes `.claude/test-plans/<ticket>.yml` per [SCHEMA.md](../../proxiblue-skills/skills/manual-test-plan/SCHEMA.md). |
 | `pre-implementation-incident-recall` | `pre-implementation` | 10 | single | For each `_task-NNN.md`, identifies the touched module/area, searches Graphiti for prior incidents, PREPENDS a `## Prior incidents in this area` section to the task file. Also copies `.claude/constitution.md` into the plan dir as `_constitution.md` (once, idempotently) — the first point in the pipeline where the plan dir provably exists. tdd-workers read both during their normal task ingestion — institutional memory + project invariants arrive in worker context automatically. |
 | `issue-sentinel` | `post-batch` | 30 | single | Queries the central Bugsink error tracker for issues `first_seen` since this batch started (project + `HCF_RELEASE` filtered), triages via bricklayer `diagnose-error` where wired, returns PASS or structured PUSHBACK with `friendly_id` + stacktrace excerpt + suspected file:line. Falls back to a thin `var/report` + cron-stderr scan when Bugsink is unreachable. Writes a `_issue_sentinel.md` verdict to the plan dir every batch. First agent enrolled at pb-hcf's new `post-batch` hook point. |
+| `post-batch-playwright-churn` | `post-batch` | 40 | single | Counts Playwright (e2e) invocations per task inside the batch window from `.git/claude-test-gate/evidence.jsonl`; PUSHBACK "extract to unit" above 8 per task (pb-hcf-playwright-tdd testing.md run budget). Origin: #519 — one spec ran 88x in a session. |
 | `codegraph-reviewer` | `post-implementation` | 30 | single | Diff-impact review via pb-codegraph code graph. Surfaces indirect callers grep misses (Magento plugins, observers wired in `events.xml`, DI preferences, layout overrides). Returns PASS / PUSHBACK with `mcp__pb-codegraph__impact` citations. |
 | `graphiti-reviewer` | `post-implementation` | 40 | single | Diff-vs-knowledge-graph review — historical counterpart of codegraph-reviewer. Catches: change that conflicts with a prior decision, change that recreates a fixed incident pattern, new dependency that violates a vendor verdict, change overlapping planned-but-not-built work. Returns PASS / PUSHBACK with cited graphiti episode UUIDs. |
 | `mutation-tester` | `post-implementation` | 45 | single | Tests-that-test-the-tests. Runs Infection mutation testing on the plan's changed PHP files only (`app/code/**`, excluding generated/vendor/fixtures), gates on a min-MSI threshold, returns PASS or PUSHBACK listing each surviving mutant (file:line + mutator) so tdd-workers strengthen assertions instead of gaming coverage. Writes a `_mutation_tester.md` verdict every run. Runs once on the whole plan diff, after `graphiti-reviewer` (40), before `standards-enforcer` (50). |
@@ -44,7 +46,7 @@ Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based h
 | `pre-commit-adversarial-pass` | `pre-commit` | 10 | single | One last adversarial-tester pass on the staged diff AFTER the full test suite passes, BEFORE the commit lands. Looks for last-minute regressions, exploit patterns, attack chains, dependency CVEs in version bumps, and judges `scripts/rector-check.sh`'s contested transforms (public signature changes, dead-code removal near DI/observer wiring, constructor changes) against Magento-wiring risk. Returns PASS or DEFER (advisory — does NOT block commit; surfaces to the build-summary). Read-only. |
 | `post-commit-verify-handoff` | `post-commit` | 10 | single | Prints the fresh-thread instruction that hands off to `/verify-feature <ticket>` (skill convention requires fresh thread so verify's TodoWrite doesn't fight the build's). Unmissable ASCII box. |
 | `post-commit-build-summary` | `post-commit` | 20 | single | Prints the BUILD COMPLETE summary aggregating every hook verdict + per-task review outcomes + deferred concerns + branch/commit info + `READY TO DEPLOY` (or `NOT READY TO DEPLOY` if any gate blocked). Final user-facing checkpoint before `/deploy-check`. |
-| `pipeline-audit` | `post-commit` | 90 | single | After orchestration completes, proves which enrolled pipeline phases actually fired vs silently skipped. Mechanizes the hcf-build-integration-gaps lesson (built-but-never-fired integrations). Derives the expected-agent list from `.claude/wires.json` enrollments, maps each to a documented evidence artefact, posts a PASS/FAIL verdict via chatroom MCP (else writes `_pipeline_audit.md` in the plan dir). Runs last — tail of the post-commit hook, after every other post-commit agent — so any artefact another agent wrote already exists on disk. |
+| `pipeline-audit` | `post-commit` | 90 | single | After orchestration completes, proves which enrolled pipeline phases actually fired vs silently skipped. Mechanizes the hcf-build-integration-gaps lesson (built-but-never-fired integrations). Expected list from `scripts/discover-hooks.sh` (frontmatter fallback); evidence = a `_hook_verdicts.md` line OR the agent's own artefact; phases that did not run this session (no timing marker / plan predates the verdict contract) are classed as explained, not FAIL; counts computed by script. Always writes `_pipeline_audit.md`; opens a chatroom thread ONLY on an unexplained NO-EVIDENCE. Runs last — tail of the post-commit hook, after every other post-commit agent — so any artefact another agent wrote already exists on disk. |
 
 ### Library agents (spawned BY security-quorum at runtime — not enrollable)
 
@@ -147,9 +149,11 @@ Result: bundled agents live in the plugin without a `phase` (dormant in plugin s
 | `pre-plan-graphiti-recall` | `pre-plan` | `10` | `single` | After pre-flight clears; runs once before Phase 1 Discovery so historical context lands in plan-create's window |
 | (HCF) `devils-advocate` | `post-plan` | `10` | `single` | HCF bundled — runs first at post-plan to review the plan |
 | `pre-mortem` | `post-plan` | `20` | `single` | After devils-advocate; assumes the plan already failed and works backwards to causes — distinct lens from gap-finding, so it runs as its own pass rather than merged into devils-advocate's |
+| `post-plan-dag-check` | `post-plan` | `30` | `single` | After pre-mortem (which may add tasks) — sees the final task set; before manual-test-plan |
 | `post-plan-manual-test-plan` | `post-plan` | `50` | `single` | After devils-advocate + pre-mortem finish (gives the reviewed plan to mine); higher order = runs later |
 | `pre-implementation-incident-recall` | `pre-implementation` | `10` | `single` | Once before first batch — pre-seeds every task file with relevant prior incidents, copies `.claude/constitution.md` into the plan dir |
 | `issue-sentinel` | `post-batch` | `30` | `single` | Once per batch, after results collected — asks Bugsink what fired at runtime that the test suite never observed |
+| `post-batch-playwright-churn` | `post-batch` | `40` | `single` | Once per batch, after issue-sentinel — counts e2e runs per task from the test-gate journal |
 | `codegraph-reviewer` | `post-implementation` | `30` | `single` | Structural-impact review FIRST — before style fixes and security audit |
 | `graphiti-reviewer` | `post-implementation` | `40` | `single` | Historical/decisional review SECOND — symmetric to codegraph on the knowledge axis |
 | `mutation-tester` | `post-implementation` | `45` | `single` | THIRD — tests-that-test-the-tests, after the structural/historical reviews but before standards-enforcer reformats anything |
@@ -161,6 +165,31 @@ Result: bundled agents live in the plugin without a `phase` (dormant in plugin s
 | `pipeline-audit` | `post-commit` | `90` | `single` | LAST — tail of the pipeline, so every other agent's evidence artefact already exists on disk to audit for |
 
 To pick a different hook for an agent (e.g. per-batch cadence instead of per-plan for codegraph-reviewer), edit the project's `.claude/agents/<name>.md` after wire — change `phase` to `post-batch`. The wire respects local edits on re-run (won't clobber a `phase` you've changed; warns instead).
+
+### Hook verdict contract (`_hook_verdicts.md`)
+
+Several enrolled agents leave no artefact by design — they print to the session (`post-commit-verify-handoff`, `post-commit-build-summary`, `post-commit-build-timing`) or return prose to plan-create (`pre-flight-check`, `pre-plan-graphiti-recall`, `post-plan-playwright-bucket-split`). Without a trace, `pipeline-audit` could not tell "fired, printed" from "never fired" and reported FAIL on every plan (#519). So every enrollable agent's LAST step appends exactly one line:
+
+```
+- <ISO-8601 UTC ts> <agent-name> <phase>/<order>: <VERDICT> — <one-line note>
+```
+
+| Phase | File |
+|---|---|
+| `pre-plan` (no plan dir yet) | `.claude/plans/_pre_plan_verdicts.md` — `pipeline-audit` matches lines to a plan by timestamp (12h before its first post-plan line) |
+| everything else | `.claude/plans/<plan-name>/_hook_verdicts.md` |
+
+Append-only. Per-batch agents (`pre-batch`, `post-batch`) start the note with `batch <n>` — `pipeline-audit` expects one line per batch. Post-commit lines land after the commit, so `_hook_verdicts.md` (like `_pipeline_audit.md`) shows as an uncommitted plan-dir change after every run — expected. **Any new enrollable agent must end with the same "Final step — append your hook verdict line" section.**
+
+### Picking up agent changes in existing projects
+
+Wire's enrollment is skip-if-present: a plain re-run never refreshes an already-enrolled agent's body. After a pb-hcf agent update, run from the host, in any project that mounts the fleet target:
+
+```
+/pb-hcf:wire --enable-all --refresh
+```
+
+`--refresh` re-copies each enrolled pb-hcf agent's body and keeps the enrolled copy's own `phase`/`order`/`mode`. Newly added agents are enrolled normally by the same command. With the fleet target (`~/claude-code-magento-agents/`) one run updates every project that mounts it; new container sessions pick it up.
 
 ### Why pipeline.md is dead in v2
 

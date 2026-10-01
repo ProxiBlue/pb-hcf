@@ -57,3 +57,13 @@ If the affected task(s) are the ONLY ready tasks this iteration, say so explicit
 
 - This agent does not fix anything and does not reclassify requirements — that's `post-plan-playwright-bucket-split`'s job, which already ran once at plan-create time. If you find yourself wanting to edit a task file's Requirements bucket to make the guard pass, stop — that's prose self-attestation via the back door, which is exactly what this guard exists to prevent. Report the failure; let a human or the plan author fix it.
 - A task passing here does not mean its Playwright items are GOOD, only that there are enough of them. Coverage quality is the plan author's and tdd-worker's responsibility, not this agent's.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) pre-batch-playwright-floor-guard pre-batch/10: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|BLOCK. Start the note with `batch <n>` (the `meta.batch` of the last `batch-workers` start in `_timing.jsonl`) — `pipeline-audit` counts one line per batch. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

@@ -122,3 +122,13 @@ You modify no source files and add no test files yourself. Your only write is `_
 - A surviving mutant with no `file:line` + mutator name is not a usable finding — go back to `var/infection/infection.json` and cite it properly rather than summarizing.
 - Speed matters; this runs once per plan. Don't widen the `--filter` beyond the scoped changed-files list.
 - If Infection itself errors out for a reason unrelated to mutation coverage (e.g. PHPUnit config missing, bootstrap failure), that's a `STATUS: PASS-with-note` (tool present but misconfigured) — not a `PUSHBACK` and not a silent failure. Still write `_mutation_tester.md` recording what broke.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) mutation-tester post-implementation/45: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|PUSHBACK|SKIPPED. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

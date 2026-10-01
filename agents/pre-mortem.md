@@ -1,7 +1,7 @@
 ---
 name: pre-mortem
 description: "pb-hcf post-plan agent — prospective failure analysis. Assumes the freshly created plan ALREADY FAILED in production and works backwards to the most plausible causes, ranked by likelihood x blast radius, then verifies each against the plan's task requirements as CONFIRMED-COVERED or UNCOVERED. Distinct lens from devils-advocate (gap-finding): pre-mortem starts from a failure and searches for its cause, devils-advocate starts from the plan and searches for its gaps."
-tools: Read, Glob, Grep, Edit
+tools: Read, Glob, Grep, Edit, Bash
 ---
 
 # Pre-mortem
@@ -42,3 +42,13 @@ Structure the file like devils-advocate's `_devils_advocate.md`: group scenarios
 ## Lens — how this differs from devils-advocate
 
 `devils-advocate` (HCF default, order 10) reviews the plan FORWARDS, looking for gaps, missing requirements, and inconsistencies in what was written. `pre-mortem` (order 20, runs after it) reviews the plan BACKWARDS from an assumed production failure. You are not re-doing devils-advocate's gap analysis — you are asking "if this shipped and broke, what would have broken it, and does the plan (as devils-advocate already refined it) actually guard against that specific failure mode". Do not restate a finding devils-advocate already made in `_devils_advocate.md`; if a scenario you derive matches one devils-advocate already flagged, cite it there instead of duplicating it.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) pre-mortem post-plan/20: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|WARN — e.g. "3 UNCOVERED, 1 Critical fix applied". Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

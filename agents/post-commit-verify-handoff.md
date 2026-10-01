@@ -83,3 +83,13 @@ STATUS: PASS
 - Don't try to invoke `/verify-feature` from inside this agent. The Skill tool can't cross threads, and the convention exists for a reason — TodoWrite collision is real.
 - Don't include the test-plan YAML contents in the print — verify-feature will read them itself.
 - Keep the box format. It's deliberately loud (the user has just watched a long orchestration finish; this needs to NOT get lost in the scrollback).
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired. Your output is printed to the session only; this line is the sole on-disk proof you ran.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) post-commit-verify-handoff post-commit/10: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PRINTED. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

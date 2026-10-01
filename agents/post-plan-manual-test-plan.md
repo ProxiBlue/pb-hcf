@@ -140,3 +140,13 @@ YAML written, but ticket comment failed. Cite the gh CLI error verbatim. Plan-cr
 - Schema fidelity matters — `/verify-feature` reads this YAML. A malformed YAML breaks verify-feature. If unsure about a field, read SCHEMA.md again rather than guessing.
 - One YAML per ticket. If `<ticket>.yml` already exists, MERGE (don't overwrite) — the ticket may map to multiple plans. SCHEMA.md `plan_name` field accepts a list of strings for this case.
 - Don't write `## Success Criteria` content verbatim into the ticket comment — that bloats the ticket. Pointer to the YAML, not the YAML itself.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) post-plan-manual-test-plan post-plan/50: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|SKIPPED. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

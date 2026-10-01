@@ -131,3 +131,13 @@ If you couldn't run (e.g. no plan-name resolvable), output a single line: `(post
 - Don't invent verdict outcomes. If a hook agent didn't run (empty hook for that phase), don't list it.
 - The ASCII box-drawing in post-commit-verify-handoff already happened above; don't repeat it. Your summary is plain markdown — distinguishable from the handoff block.
 - "READY TO DEPLOY" is a load-bearing phrase. Only print it when EVERY gate passed unconditionally OR concerns are explicitly DEFER (advisory). Anything `PUSHBACK` / `FAIL` / `BLOCK` → use the "NOT READY TO DEPLOY" footer.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired. Your output is printed to the session only; this line is the sole on-disk proof you ran.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) post-commit-build-summary post-commit/20: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PRINTED — e.g. "READY TO DEPLOY" / "NOT READY". Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

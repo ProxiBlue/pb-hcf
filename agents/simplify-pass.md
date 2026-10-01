@@ -117,3 +117,13 @@ STATUS: BLOCK
 ```
 
 There is no PUSHBACK status any more — findings either get applied, get reverted-with-reason, or land as advisory notes in the artefact. The commit never proceeds on the strength of an unread report.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) simplify-pass post-implementation/25: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|BLOCK. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

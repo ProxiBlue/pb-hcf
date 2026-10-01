@@ -97,7 +97,7 @@ and move on.
 
 ### Step 5 — Build the verdict
 
-You are READ-ONLY. Do NOT edit staged files. Do NOT unstage. Your output is the verdict.
+You are READ-ONLY. Do NOT edit staged files. Do NOT unstage. Your output is the verdict. (Sole write: the one-line append to the plan's `_hook_verdicts.md` — see Final step.)
 
 #### STATUS: PASS
 
@@ -154,3 +154,13 @@ If you would have used `BLOCK` — DON'T. Tests already passed and the security-
 - A finding without an indirect-caller chain (when one is relevant) is half-baked. Use `mcp__pb-codegraph__impact`.
 - Speed matters. Don't re-run the full security-quorum analysis — that already happened. You're looking for what changed BETWEEN quorum verdict and final commit (style fixes, last-minute edits, dependency tweaks).
 - CVE checks are high-leverage; always do them when `composer.lock` / `package.json` changed.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) pre-commit-adversarial-pass pre-commit/10: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|DEFER. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

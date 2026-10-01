@@ -48,73 +48,80 @@ If the file doesn't exist or is empty, output exactly one line and stop:
 
 ## Process
 
-### Step 1 — Parse
+### Step 1 — Parse into intervals (deterministic — run verbatim)
 
-Read the file. For each `phase`, pair `start`/`end` events in file order. Most
-phases (`pre-implementation`, `post-implementation`, `test-suite`,
-`pre-commit-hook`, `commit`, `post-commit-hook`) appear once — pair the single
-start with the single end. `plan` may have multiple `start` events (a resumed
-run re-marks it) — use the FIRST `start` and the LAST `end` for total wall
-time. `pre-batch-hook`, `batch-workers`, and `post-batch-hook` repeat once per
-batch — pair them by matching `meta.batch` number, not file order alone.
+Never pair markers or add durations by hand. Run:
 
-A `plan` end marker carrying `"meta":{"blocked":true}` means the run stopped
-on `TASKS_BLOCKED`, not a completed build — say so plainly in the report
-instead of presenting it as a finished build.
+```bash
+T=.claude/plans/<plan-name>/_timing.jsonl
+jq -s -f /dev/stdin "$T" <<'JQ'
+def k: .phase + (if .meta.batch then "#\(.meta.batch)" else "" end);
+(map(select(.phase != "plan"))) as $ev
+| (map(select(.phase=="plan" and .event=="start")) | first | .ts) as $p0
+| (map(select(.phase=="plan" and .event=="end")) | last | .ts) as $p1
+| reduce $ev[] as $e ({open:{}, iv:[], unclosed:[]};
+    ($e|k) as $k
+    | if $e.event == "start" then
+        (if .open[$k] then .unclosed += [{k:$k, s:.open[$k]}] else . end) | .open[$k] = $e.ts
+      elif .open[$k] then .iv += [{k:$k, s:.open[$k], e:$e.ts, d:($e.ts - .open[$k])}] | del(.open[$k])
+      else . end)
+| .unclosed += (.open | to_entries | map({k:.key, s:.value}))
+| .iv |= sort_by(.s)
+| .wall = (if $p0 and $p1 then $p1 - $p0 else null end)
+| .union = (reduce .iv[] as $i ({cur:null, tot:0};
+      if .cur == null then .cur = [$i.s, $i.e]
+      elif $i.s <= .cur[1] then .cur[1] = ([.cur[1], $i.e] | max)
+      else .tot += (.cur[1] - .cur[0]) | .cur = [$i.s, $i.e] end)
+    | .tot + (if .cur then .cur[1] - .cur[0] else 0 end))
+| .concurrent = [ .iv as $a | range(0; $a|length) as $x | range($x+1; $a|length) as $y
+    | select($a[$y].s < $a[$x].e)
+    | {a:$a[$x].k, b:$a[$y].k, overlap_s:(([$a[$x].e, $a[$y].e] | min) - $a[$y].s)} ]
+| del(.open)
+JQ
+```
 
-An unpaired `start` with no matching `end` (interrupted run, crash) — note it
-as "(incomplete — no end marker, likely interrupted)" for that phase/batch
-rather than silently omitting it or inventing a duration.
+Output: `iv[]` (closed intervals `{k, s, e, d}` — `k` is the phase, suffixed `#<batch>` for per-batch phases), `unclosed[]` (a `start` with no matching `end`, including a start superseded by a second start of the same key), `wall` (first `plan` start → last `plan` end), `union` (wall-clock union of every closed interval), `concurrent[]` (pairs of intervals that overlap, with `overlap_s`).
 
-### Step 2 — Compute
+Rules:
+- Phase names vary by orchestrator version (`test-suite`, `test-suite-final`, …). Treat every `test-suite*` key as the test-suite phase; report any other unknown key under its own name rather than dropping it.
+- A `plan` end marker carrying `"meta":{"blocked":true}` means the run stopped on `TASKS_BLOCKED` — say so instead of presenting a finished build.
+- **Unclosed starts are reported, never silent and never given a duration.** Each `unclosed[]` entry prints as `<phase> batch <n>: UNCLOSED (start <HH:MM>, no end marker)`. Measured #519 (2026-10-01): `post-batch-hook` batches 9 and 12 had a start and no end.
 
-- **Total wall time** = `plan` end ts − `plan` start ts.
-- **Per-phase duration**: sum of (end − start) for each non-batch phase.
-- **Per-batch duration**: for each batch number, `pre-batch-hook` +
-  `batch-workers` + `post-batch-hook` durations, plus the task count from
-  `batch-workers`'s `meta.tasks`.
-- **% of total**: each phase/batch duration ÷ total wall time.
-- **Slowest phase(s)**: the top 1-3 by absolute duration.
-- **Batch efficiency**: number of batches vs total tasks across all batches —
-  many single-task batches suggests an over-serialized dependency graph
-  (tasks marked dependent that didn't need to be); one huge batch with a wide
-  spread between the fastest and slowest task-worker isn't visible at this
-  granularity (worker-level detail isn't logged) — say so as a known gap
-  rather than inventing per-task numbers.
+### Step 2 — Compute (concurrency-aware)
 
-Format every duration as `Xm Ys` (or `Xs` under a minute). Never report a
-percentage or duration you didn't compute from an actual ts pair.
+- **Total wall time** = `wall`. If `plan` start/end missing, use the min `s` / max `e` of `iv[]` and say so.
+- **Per-phase duration** = sum of `d` for that phase's intervals; **per-batch** = `pre-batch-hook#n` + `batch-workers#n` + `post-batch-hook#n`, task count from the `batch-workers` start `meta.tasks`.
+- **% of total** = duration ÷ `wall`. If the per-phase percentages sum to more than 100%, that is concurrency, not a bug to hide: print the `Concurrent:` block (every `concurrent[]` pair with its overlap) and the `Accounted (wall-clock union)` line = `union` ÷ `wall`. Never present a sum of overlapping intervals as elapsed time. Measured #519: `post-batch-hook` batch 11 logged 54 min while `test-suite-final` and `pre-commit-hook` ran inside it — the hook's end marker was written after the orchestrator had moved on, so its interval is the overlap, not hook cost. Name a hook interval that fully contains another phase's interval as `end marker written late` rather than counting it as hook time.
+- **Slowest phase(s)**: top 1-3 by duration, excluding intervals flagged `end marker written late`.
+- **Batch efficiency**: batches vs tasks. Many single-task batches = over-serialised dependency graph (see note 3). Worker-level timing isn't logged — say so as a known gap rather than inventing per-task numbers.
+
+Format every duration as `Xh Ym` / `Xm Ys` / `Xs`. Never report a number you didn't take from the jq output or compute from it.
 
 ### Step 2b — Active vs idle (test-gate evidence cross-reference)
 
-Wall time alone lies: phase windows include human absence and stalled
-workers. Cross-reference each window against the test-gate evidence journal,
-which records every real test-runner execution with a UTC timestamp:
+Wall time alone lies: phase windows include human absence and stalled workers. Cross-reference each window against the test-gate evidence journal, which records every real test-runner execution with a UTC timestamp:
 
 ```bash
 EF="$(git rev-parse --path-format=absolute --git-common-dir)/claude-test-gate/evidence.jsonl"
+# runs inside a window [S,E] (epoch seconds from iv[]):
+jq -r --argjson s S --argjson e E 'select(.type=="test") | (.ts|fromdateiso8601) as $t | select($t>=$s and $t<=$e) | "\($t) \(.family)"' "$EF"
 ```
 
-Each line is `{"type":"test","family":"unit"|"e2e","ts":"2026-09-18T21:56:03Z","cmd":"..."}`
-(ignore `type:"commit"` lines). If the file is missing, print one line
-`(no evidence.jsonl — active/idle breakdown unavailable)` and skip this step.
+Each line is `{"type":"test","family":"unit"|"e2e","ts":"2026-09-18T21:56:03Z","cmd":"..."}` (ignore `type:"commit"` lines). If the file is missing, print one line `(no evidence.jsonl — active/idle breakdown unavailable)` and skip this step.
 
-For each `batch-workers` window, the `post-implementation` window and the
-`test-suite` window, compute:
+For each `batch-workers` window, the `post-implementation` window and every `test-suite*` window, compute:
 
 - **test runs** inside the window (count), split unit / e2e;
-- **largest quiet gap** = the longest interval with no test run, including
-  window-start→first-run and last-run→window-end;
-- flag the window when the quiet gap exceeds 30 minutes.
+- **quiet gaps** = intervals with no test run, including window-start→first-run and last-run→window-end;
+- **idle** = sum of quiet gaps longer than 30 minutes.
 
-Measured reference (2026-09-21, pvcpipesupplies): a 5.2h single-task batch
-held 7 test runs and one 294-min gap; a "7.3h test suite" held 6 runs with the
-last one 349 min before the end marker. In both cases the time was idle
-workers or a paused session, not test execution — the report must say so
-rather than recommend "speed up the tests".
+**Test-suite windows: idle is NOT test time.** An evidence record is written when the Bash call that ran the tests RETURNS, so a suite run in the same call as its start/end markers (plan-orchestrate rule) leaves one record within seconds AFTER the end marker. Classify each `test-suite*` window:
+- a record at `e`..`e+300s` → **active**: the whole window is test time;
+- otherwise → idle = `e` − (last record inside the window, or `s` if none). Idle > 30 min ⇒ label the window `IDLE <idle> (no test-gate record for <idle> — suite not running, or not recorded)`, exclude the idle part from "test suite" in the phase breakdown and show it on its own `idle (no test runs)` line.
 
-Add the counts and gap to the per-batch lines and to the test-suite line in
-Step 3, e.g. `batch 4   1 task   5h 10m   [7 test runs, quiet gap 294m ⚠]`.
+Measured reference (2026-09-21, pvcpipesupplies): a "7.3h test suite" held 6 runs with the last one 349 min before the end marker; a 5.2h single-task batch held 7 runs and one 294-min gap — idle workers or a paused session, not test execution.
+
+Add the counts and idle to the per-batch lines and the test-suite line in Step 3, e.g. `batch 4   1 task   5h 10m   [7 test runs, idle 294m ⚠]`.
 
 ### Step 3 — Print the report
 
@@ -133,6 +140,13 @@ Phase breakdown:
   pre-commit hook           {dur}   ({pct}%)
   commit                    {dur}   ({pct}%)
   post-commit hook          {dur}   ({pct}%)
+  idle (no test runs)       {dur}   ({pct}%)   (omit when 0)
+
+Accounted (wall-clock union): {union} of {wall}
+Concurrent:                       (omit block when concurrent[] is empty)
+  {phase A} ∥ {phase B}   overlap {dur}
+Unclosed:                         (omit block when unclosed[] is empty)
+  {phase} batch {n}: UNCLOSED (start {HH:MM}, no end marker)
 
 Per-batch:
   batch 1   {N} tasks   {dur}   (pre-batch {dur}, post-batch {dur})
@@ -173,14 +187,18 @@ rest — do not pad the list to look thorough):
 3. **Batch-count vs task-count skew**: if batch count ≈ task count (mostly
    1-task batches) and task count > 3: "{N} batches for {M} tasks — dependency
    graph may be more serial than necessary; check task `Depends on` fields for
-   dependencies that aren't real."
+   dependencies that aren't real." If `<plan-dir>/_dag_check.md` exists, cite
+   its Before/After batch widths; if it doesn't, recommend enrolling
+   `post-plan-dag-check`.
 4. **One batch dominates**: if one batch's duration is >2x the median batch
    duration: "Batch {N} ({dur}) took over 2x the median batch time ({dur}) for
    only {tasks} task(s) — that task likely had disproportionate scope; consider
    splitting similar tasks smaller in future plans."
-5. **Incomplete/interrupted phases** found in Step 1: "{phase} has no end
-   marker — the run was likely interrupted mid-phase; timing for this build is
-   partial."
+5. **Unclosed / late-closed hook markers** found in Steps 1-2: "{phase} batch
+   {n} UNCLOSED" or "{phase} batch {n} end marker written late (contains
+   {other phase})" — orchestrator bookkeeping gap, not hook cost. Point at the
+   plan-orchestrate Build Timing rule: a hook's end marker is written in the
+   first Bash call after its agents return, before any other phase starts.
 6. If nothing above applies: "No phase or batch stood out as disproportionate
    — time was spent roughly where expected for a {M}-task plan."
 
@@ -198,3 +216,13 @@ missing, only the one-line message from Step 1.
   is the closest approximation available).
 - This agent is pure reporting — it must never edit `_timing.jsonl`,
   `_plan.md`, or any task file.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired. Your output is printed to the session only; this line is the sole on-disk proof you ran.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) post-commit-build-timing post-commit/30: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PRINTED — e.g. "wall 9h12m, 2 unclosed, 1 idle window". Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

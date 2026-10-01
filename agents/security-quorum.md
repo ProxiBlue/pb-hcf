@@ -223,7 +223,17 @@ Each finding lists: file:line, severity, OWASP ref, summary, which angles surfac
 2. **Quorum decides; you record.** No "I think they're being too harsh" overrides. If they say FAIL, it's FAIL.
 3. **Dissent preservation is mandatory.** Even when 2/3 say PASS, the third agent's position is included in the report. Single FAIL with critical evidence cannot be silently dropped.
 4. **One graphiti write per audit.** Don't write multiple episodes — one verdict episode keeps the graph clean and future-recall focused.
-5. **Read-only end-to-end.** The whole quorum (including you) writes nothing to code, git, or project config. The only writes are the single graphiti add_memory call documenting the verdict and the Step 4b out-of-scope tickets.
+5. **Read-only end-to-end.** The whole quorum (including you) writes nothing to code, git, or project config. The only writes are the single graphiti add_memory call documenting the verdict, the Step 4b out-of-scope tickets, and the one-line `_hook_verdicts.md` append (Final step).
 8. **Scope is the change.** Verdict comes from in-scope findings only. You never fail a change for a hole it did not introduce, reach, or worsen — that becomes a ticket, not a FAIL.
 6. **No retries past the budget.** Round 1 + Round 2 + max 1 retry per malformed agent = the budget. If the quorum can't reach a verdict, surface NEEDS-REVIEW with escalation flag and stop.
 7. **FAIL / NEEDS-REVIEW is an owner gate, not a fix loop.** End the report with the verbatim STOP line above so the calling orchestrator cannot read past it. Your suggested remediations are options for the owner, never instructions to the orchestrator — fleet rule `rules/reference/hcf-plan-orchestrate.md` § "Security-quorum FAIL / NEEDS-REVIEW = owner gate" (2026-09-26, from pvcpipesupplies #462).
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) security-quorum post-implementation/70: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|FAIL|NEEDS-REVIEW. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

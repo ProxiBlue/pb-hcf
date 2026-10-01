@@ -110,3 +110,13 @@ Same shape as PUSHBACK but with header note: "These are advisory — they do not
 - A concern phrased "this might be a problem" without a graphiti fact backing it = drop. You're the historical axis, not a speculator.
 - Don't repeat codegraph-reviewer's structural findings. If a concern is "this break callers" → that's codegraph's job. You speak from memory, not from the code graph.
 - Speed matters; this runs once per plan. Stop after the 5–10 most relevant searches per modified area. Empty result + 4-synonym retry per the graphiti discipline is enough; don't spelunk.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) graphiti-reviewer post-implementation/40: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|PUSHBACK|SKIPPED. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

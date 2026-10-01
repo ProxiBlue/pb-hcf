@@ -128,3 +128,13 @@ Some task annotations failed (file unreadable, edit conflict). Cite each failure
 - An "incident" you can't summarize in one line is too vague to surface — drop it.
 - Don't paraphrase the task back at itself. Surface NEW historical info the worker wouldn't have found by reading the task alone.
 - Re-runs MUST be idempotent. The orchestrator may retry a task; running this agent twice must produce the same file state.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) pre-implementation-incident-recall pre-implementation/10: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|SKIPPED. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

@@ -219,3 +219,13 @@ downstream.
 - Speed matters; you run once per batch. Don't widen the log fallback into full `var/log` tailing
   — that's Bugsink's job when reachable, and grepping the whole log defeats the point of the
   marker-scoped, cheap fallback.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) issue-sentinel post-batch/30: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|PUSHBACK|PASS-with-note. Start the note with `batch <n>` (the `meta.batch` of the last `batch-workers` start in `_timing.jsonl`) — `pipeline-audit` counts one line per batch. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

@@ -125,3 +125,13 @@ No Rule-2 tasks in this plan (backend-only feature). No action taken.
 - Re-read `testing.md`'s Rule 2 / extraction-pattern / floor sections before classifying — this agent exists BECAUSE those rules weren't structurally enforced before; don't reintroduce the same gap by improvising from memory.
 - The guard script (`playwright-floor-guard.sh`) is the ground truth for what "meets the floor" means — if your Step 6 self-verify still fails after you believe you met it, trust the script and re-check your heading text (`## Requirements — Playwright`, level-2, em-dash) and `**Domain**:` line formatting against its exact expectations rather than assuming the script is wrong.
 - Never delete or reword a requirement bullet while classifying it into a bucket — move it verbatim. Rewording is out of scope for this agent and risks silently changing what the task actually tests.
+
+## Final step — append your hook verdict line (artefact contract)
+
+As the LAST thing you do — every outcome, including SKIPPED/degraded — append exactly one line to the plan's shared verdict log. `pipeline-audit` reads it as evidence that you fired.
+
+```bash
+echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) post-plan-playwright-bucket-split post-plan/15: <VERDICT> — <one-line note>" >> .claude/plans/<plan-name>/_hook_verdicts.md
+```
+
+`<VERDICT>`: PASS|WARN|SKIPPED. Append only — never rewrite or truncate the file. If your enrolled copy was stamped with a different `phase`/`order`, use the stamped values.

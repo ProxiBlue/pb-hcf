@@ -30,9 +30,29 @@ Abort with a clear message if any fail:
 
    Do NOT touch `pipeline.md` from this skill. Migration is HCF's job; this skill only wires once the migration is done.
 
+## Stack selection (`--stack=python|magento`)
+
+Resolve the project stack ONCE, before playbook discovery. It decides which playbooks install, the fence text, and is recorded as `"stack"` in `.claude/wires.json` (agents read it to pick stack-specific behaviour).
+
+1. **`--stack=<python|magento>` flag** — explicit; use as-is. Any other value → abort with `unknown stack '<v>' (supported: python, magento)`.
+2. **Auto-detect** (no flag), from the project root:
+   ```bash
+   if [ -f composer.json ] && { [ -d app/etc ] || [ -e bin/magento ]; }; then STACK=magento
+   elif { [ -f pyproject.toml ] || [ -f requirements.txt ]; } && [ ! -f composer.json ]; then STACK=python
+   else STACK=magento; fi   # fallback preserves pre-0.6.0 behaviour
+   ```
+3. Report the resolved stack and its source (`flag` | `detected` | `default`) in the completion output.
+
+| Stack | Playbooks installed | Playbooks skipped (no file, no fence line, **no `wires.json` row**) |
+|---|---|---|
+| `magento` | every `templates/playbooks/*.md` (bricklayer probe-gated — unchanged pre-0.6.0 behaviour) | none |
+| `python` | `graphiti`, `security`, `bugsink`, `prod-shape` (if the template exists), plus the constitution (step 1a) | `codegraph`, `xhgui`, `visual`, `bricklayer` — and any future playbook not on the python allow-list |
+
+The python allow-list is explicit (`graphiti security bugsink prod-shape`): a new playbook template added later is Magento-only until someone adds it to this list. Skipped playbooks are not probed — so `pre-flight-check` (which only probes rows present in `wires.json`) never BLOCKs a python project on codegraph.
+
 ## Playbook discovery
 
-Enumerate all `*.md` files under `$CLAUDE_PLUGIN_ROOT/templates/playbooks/`. Each file becomes one wire entry. The basename (sans `.md`) is the playbook name (e.g. `codegraph.md` → `codegraph`).
+Enumerate all `*.md` files under `$CLAUDE_PLUGIN_ROOT/templates/playbooks/`, then filter by stack (see "Stack selection"): `magento` keeps all; `python` keeps only the python allow-list. Each remaining file becomes one wire entry. The basename (sans `.md`) is the playbook name (e.g. `codegraph.md` → `codegraph`).
 
 For each playbook, read its first heading (`# <Title>`) — used in the CLAUDE.md fenced section pointers.
 
@@ -57,7 +77,7 @@ Record per-playbook probe result in `.claude/wires.json`. Unknown / unreachable 
 
 ### 1. Install each playbook
 
-For each `<name>.md` under `templates/playbooks/`, copy verbatim to `.claude/<name>.md` (no template substitutions — playbooks are project-agnostic; agents resolve project-specific values like `$DDEV_PROJECT` at use time).
+For each `<name>.md` under `templates/playbooks/` that survived the stack filter, copy verbatim to `.claude/<name>.md` (no template substitutions — playbooks are project-agnostic; agents resolve project-specific values like `$DDEV_PROJECT` at use time).
 
 - If destination exists and differs → show diff, confirm overwrite (default yes unless `--no-overwrite` passed).
 - If destination exists and is identical → skip silently.
@@ -86,7 +106,9 @@ as `_constitution.md` happens later, at `pre-implementation`, once a plan dir ex
 
 ### 2. Update the single fenced section in `.claude/CLAUDE.md`
 
-Use ONE fenced section with stable markers, listing pointers to ALL installed playbooks:
+Use ONE fenced section with stable markers, listing pointers to ALL installed playbooks. The fence text is stack-specific.
+
+**`magento` stack (unchanged):**
 
 ```markdown
 <!-- pb-hcf:start -->
@@ -104,6 +126,26 @@ For domain-specific tooling and per-agent playbooks, consult the relevant file:
 Each playbook declares its **Authority scope** at the top — defer to the named playbook when a question falls in its scope; cross-cite when a question spans two.
 <!-- pb-hcf:end -->
 ```
+
+**`python` stack:**
+
+```markdown
+<!-- pb-hcf:start -->
+## Per-domain Playbooks (pb-hcf wires)
+
+For domain-specific tooling and per-agent playbooks, consult the relevant file:
+
+- **Knowledge graph** (discussions, decisions, planned features, prior incidents) → `@.claude/graphiti.md`
+- **Security audit** (OWASP, vulnerability assessment, FastAPI/Python controls) → `@.claude/security.md`
+- **Runtime errors** (what's actually breaking — Bugsink) → `@.claude/bugsink.md`
+- **Production data scale** → `@.claude/prod-shape.md`
+- **Lint + modernization convention** (ruff rules incl. pyupgrade `UP` — generation-time context, not a playbook) → `@pyproject.toml` `[tool.ruff]` (deterministic check: `scripts/ruff-check.sh` in pb-hcf)
+
+Each playbook declares its **Authority scope** at the top — defer to the named playbook when a question falls in its scope; cross-cite when a question spans two.
+<!-- pb-hcf:end -->
+```
+
+No code-graph line, no xhgui line, no `rector.php` pointer, no "Magento wiring" wording on python.
 
 Only emit pointer lines for playbooks that actually got installed in step 1. Re-runs replace the entire fenced section (not duplicate, not split).
 
@@ -130,9 +172,9 @@ pb-hcf ships 20 enrollable agents that together implement the **full** custom-wo
 | `simplify-pass` | `post-implementation` | `25` | `single` | MANDATORY simplify→test loop over the plan's diff — over-built abstractions, duplicated logic, dead configurability, comment noise. Applies the cuts itself, re-runs tests to prove green after each iteration (max 3), reverts any cut that breaks tests (file backups only — never git stash/checkout). Runs before `codegraph-reviewer` (30) so all reviewers see already-simplified, already-green code. Writes `_simplify_pass.md` to the plan dir; returns PASS or BLOCK (suite red before it touched anything). |
 | `codegraph-reviewer` | `post-implementation` | `30` | `single` | Diff-impact review via pb-codegraph code graph (callers, plugins, observers, DI wiring). |
 | `graphiti-reviewer` | `post-implementation` | `40` | `single` | Diff-vs-knowledge-graph review (prior decisions, incidents, vendor verdicts, planned work overlap). |
-| `mutation-tester` | `post-implementation` | `45` | `single` | Runs Infection mutation testing on the plan's changed PHP files only, gates on min-MSI, returns PASS or PUSHBACK listing surviving mutants (file:line + mutator) so tdd-workers strengthen assertions instead of gaming coverage. Runs once, after `graphiti-reviewer` (40), before `standards-enforcer` (50). |
+| `mutation-tester` | `post-implementation` | `45` | `single` | Runs Infection (PHP) or mutmut (Python) mutation testing on the plan's changed source files only, gates on min-MSI, returns PASS or PUSHBACK listing surviving mutants (file:line + mutator) so tdd-workers strengthen assertions instead of gaming coverage. Runs once, after `graphiti-reviewer` (40), before `standards-enforcer` (50). |
 | `security-quorum` | `post-implementation` | `70` | `single` | 3-agent 2-of-3 security consensus (spawns its own trio: static-analyst, adversarial-tester, defensive-auditor). |
-| `pre-commit-adversarial-pass` | `pre-commit` | `10` | `single` | One last adversarial-tester pass on the staged diff after tests pass, before commit. Also judges `scripts/rector-check.sh`'s contested transforms. Returns PASS or DEFER (advisory; doesn't block commit). |
+| `pre-commit-adversarial-pass` | `pre-commit` | `10` | `single` | One last adversarial-tester pass on the staged diff after tests pass, before commit. Also judges `scripts/rector-check.sh`'s contested transforms (python stack: `scripts/ruff-check.sh`'s `ruff check --diff` fixes). Returns PASS or DEFER (advisory; doesn't block commit). |
 | `post-commit-verify-handoff` | `post-commit` | `10` | `single` | Prints the fresh-thread instruction for `/verify-feature` (skill convention). |
 | `post-commit-build-summary` | `post-commit` | `20` | `single` | Prints the BUILD COMPLETE summary aggregating every hook's verdict + deferred concerns + ready-to-deploy guidance. Replaces workflow-build-feature step 13. |
 | `post-commit-build-timing` | `post-commit` | `30` | `single` | Reads `_timing.jsonl` (written by `plan-orchestrate`'s Build Timing bookkeeping) and prints a BUILD TIMING & ANALYTICS report: total wall time, per-phase duration table, slowest phase(s), per-batch breakdown, and evidence-based improvement notes. Runs after `post-commit-build-summary` (20) so the correctness summary prints first. |
@@ -155,6 +197,8 @@ Detection order:
 3. **No mount found** — fall back to project-local `.claude/agents/` (writable host directory at project root).
 
 In all three, the path must be **writable from host**. If not, abort with a clear message naming the path and the chown command to fix it.
+
+**Stack guard on enrollment.** When the resolved stack is `python` and the enable set contains `codegraph-reviewer` (directly or via `--enable-all`), still enroll it if asked but **warn**: `codegraph-reviewer enrolled on a python project — no codegraph playbook is wired, it will report SKIPPED every run`. `--enable-all` keeps its literal meaning (all 20) on every stack; the python recipe below (Recommended enrollment sets) is the recommended set.
 
 **To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example:
 - `/pb-hcf:wire --enable=pre-flight-check,codegraph-reviewer,security-quorum` — minimal sane set
@@ -189,6 +233,7 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
 | Magento project, full custom workflow (replaces workflow-build-feature) | `--enable-all` |
 | Magento project, no auto-test-plan posting | `--enable-all` then `rm $TARGET/post-plan-manual-test-plan.md` |
 | Non-Magento project, graphiti recall only | `--enable=pre-plan-graphiti-recall,graphiti-reviewer,pre-implementation-incident-recall` |
+| Python project (FastAPI etc.), full workflow minus codegraph/Magento-only agents | `--stack=python --enable=pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-dag-check,post-plan-manual-test-plan,pre-implementation-incident-recall,issue-sentinel,simplify-pass,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,post-commit-build-timing,pipeline-audit` (add `post-plan-playwright-bucket-split,pre-batch-playwright-floor-guard,post-batch-playwright-churn` when the project has a Playwright e2e suite) |
 | Security-focused only | `--enable=pre-flight-check,security-quorum,pre-commit-adversarial-pass` |
 | Minimal (just structural review) | `--enable=codegraph-reviewer` |
 | Verification spine only (plan-quality + test-quality + runtime-error + pipeline-proof, no test-plan posting) | `--enable=pre-mortem,mutation-tester,issue-sentinel,pipeline-audit` |
@@ -199,6 +244,7 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
 {
   "wiredAt": "<ISO timestamp>",
   "pluginVersion": "<from $CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json>",
+  "stack": "magento",
   "playbooks": [
     {
       "name": "codegraph",
@@ -247,6 +293,8 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
 }
 ```
 
+`stack` is `"magento"` or `"python"` (see "Stack selection"). Agents treat a missing key as `"magento"` (pre-0.6.0 registries). On a python wire `playbooks[]` never contains `codegraph`, `xhgui`, `visual` or `bricklayer` rows. Optional project-declared keys that wire preserves across re-runs if already present (never invents them): `"log_paths": [...]` (read by `issue-sentinel`).
+
 `enrollmentTarget` is the resolved host-side path agents land in. `enrollmentTargetSource` is one of `"flag"` (`--target` passed), `"ddev-mount"` (detected from docker-compose), or `"project-local"` (fallback to `.claude/agents/`).
 
 `enrollments[]` is populated by scanning every `.md` file in `enrollmentTarget` for `phase:` in frontmatter — this catches both pb-hcf-stamped agents and any other locally-enrolled agents (e.g. an uncommented `standards-enforcer`). `source` is `"pb-hcf"` when the agent name matches a pb-hcf bundled agent, else `"local"`. The recorded `file` is an **absolute host path** since the target may be outside the project root in fleet-shared deployments.
@@ -263,6 +311,7 @@ List each created / modified / removed file with a one-line summary. Include rea
 - For overwritten playbook files, show the diff and confirm unless `--no-overwrite` is passed.
 - For enrollment files (`$TARGET/<name>.md`): re-running `--enable=<name>` on an already-enrolled agent at the same `phase` is a no-op (silent skip) unless `--refresh` is passed (body re-copied, existing stamp kept); on a different `phase` it warns and refuses to overwrite (with or without `--refresh`).
 - Flags:
+  - `--stack=<python|magento>` → override stack auto-detection (see "Stack selection"). Recorded in `wires.json`; a re-run without the flag re-detects, so pass it again (or rely on detection) to keep a non-default stack.
   - `--reprobe` → re-run only the reachability probes, update `wires.json`, don't touch playbook files, CLAUDE.md, or the enrollment target.
   - `--no-overwrite` → skip diff prompts; leave existing playbook files untouched if they differ.
   - `--migrate-only` → only run the legacy wire-fence migration step (step 3), don't install or probe anything.
@@ -274,6 +323,7 @@ List each created / modified / removed file with a one-line summary. Include rea
 ## Completion Output
 
 ```
+✓ Stack: magento (detected | flag | default)
 ✓ Installed N playbook(s) to .claude/:
     - codegraph.md (reachable, 3 repos indexed)
     - graphiti.md (reachable, Neo4j connected)

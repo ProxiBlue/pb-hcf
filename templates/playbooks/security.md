@@ -8,7 +8,7 @@ This playbook is the source of truth for:
 - **OWASP Top 10 audit** of the project's diff or scope (A01–A10).
 - **Vulnerability assessment**: how to invoke the quorum, what verdict to trust, how to gate workflow on the verdict.
 - **Dependency CVE inspection** — composer / npm / pip / go-mod manifests against NVD / GitHub Advisory DB / OSV.
-- **Controls verification** — pass-then-verify discipline on framework-provided defenses (Magento ACL, form_key, escapeHtml, CSP, session backend, crypto primitives).
+- **Controls verification** — pass-then-verify discipline on framework-provided defenses (Magento ACL, form_key, escapeHtml, CSP, session backend, crypto primitives; on Python/FastAPI projects: `Depends`-based router auth, CSRF on cookie-session forms, argon2/bcrypt hashing, cookie flags, CORS, Jinja autoescape, webhook signature verification).
 
 This playbook is NOT the authority for (defer to sibling playbooks):
 - **Code structure / who calls what** → `codegraph.md` — the security agents USE `mcp__pb-codegraph__impact` internally, but the authoritative code-graph view lives in codegraph.md.
@@ -34,7 +34,7 @@ Three specialist agents bundled with pb-hcf, each taking a different angle so co
 | Agent | Angle | Cited by |
 |---|---|---|
 | `security-static-analyst` | Reads code, traces data flows from sources (HTTP params, uploads, webhook bodies) to dangerous sinks (SQL, exec, template, deserialise, IDOR). Cites file:line for every claim. Uses codegraph `impact` to chase indirect callers grep misses. | findings.file + findings.line |
-| `security-adversarial-tester` | Assumes hostile actor. Writes exploit payloads + attack chains. Online CVE lookups (NVD, GitHub Advisory DB, OSV) for dependency-version vulnerabilities. Runs native audit tools (`composer audit`, `npm audit`). | payload + cve list |
+| `security-adversarial-tester` | Assumes hostile actor. Writes exploit payloads + attack chains. Online CVE lookups (NVD, GitHub Advisory DB, OSV) for dependency-version vulnerabilities. Runs native audit tools (`composer audit`, `npm audit`, `pip-audit`). | payload + cve list |
 | `security-defensive-auditor` | Verifies framework defenses + mitigations *already present* — pass-then-verify discipline. Walks each control and confirms it fires correctly, not just imports. | controls_verified list |
 
 A 4th agent — `security-quorum` — is the orchestrator. It spawns the 3 specialists, runs 2 rounds (independent vote, then evidence-based revision), synthesises the verdict per the consensus rule, writes one verdict episode to graphiti, returns the final report. **You invoke `security-quorum`, not the specialists directly.**
@@ -126,6 +126,16 @@ Compared to siblings:
 - Cross-tenant data leakage in multi-tenant deployments — context the quorum doesn't see unless explicitly given as audit_target.
 - Architectural / design-level security flaws — covered by `team_security` 21-agent quorum at release sign-off, not by per-plan gate.
 
+## Python projects (`"stack": "python"` in `.claude/wires.json`)
+
+The quorum works the same way; only the catalogues and tools differ:
+
+- **Control catalogue** — `security-defensive-auditor` walks its "Python / FastAPI controls" section instead of the Magento one (stack read from `.claude/wires.json`, else manifest detection).
+- **Sink catalogue** — `security-static-analyst` adds the Python/FastAPI sinks (`subprocess(shell=True)`, `pickle`/`yaml.load`, `eval`/`exec`, upload path traversal, f-string SQL, `RedirectResponse` open redirect, lxml XXE, SVG/XML uploads).
+- **No codegraph** — python wires record no `codegraph` row; specialists skip the codegraph probe and chase callers with Grep/Read (`codegraph=not-wired` in the report is expected, not a degradation).
+- **Dependency audit** — `pip-audit` (against `uv.lock` export or `requirements.txt`) replaces `composer audit`; run from the repo root (`git rev-parse --show-toplevel`), no `/var/www/html` assumption.
+- **SAST opener** — `semgrep --config p/python --config p/fastapi --config p/security-audit --metrics=off --quiet <changed-dirs>`; `ruff` with the `S` (flake8-bandit) rules selected is a cheap complement.
+
 ## Cross-cutting integration
 
 The 3 specialists each consult sibling playbooks during their work:
@@ -164,6 +174,8 @@ time your question is just "is anything open right now?":
 
 ```bash
 composer audit --locked        # in-container; host may lack private-repo auth
+# Python projects:
+uv export --frozen --no-hashes --format requirements-txt | uvx pip-audit -r /dev/stdin   # or: pip-audit -r requirements.txt
 ```
 
 - A plan touching a package with an open advisory MUST say so and prefer the
@@ -179,6 +191,8 @@ serialization, crypto, or anything a quorum would care about:
 
 ```bash
 semgrep --config p/php --config p/security-audit --metrics=off --quiet <changed-dirs>
+# Python projects:
+semgrep --config p/python --config p/fastapi --config p/security-audit --metrics=off --quiet <changed-dirs>
 ```
 
 - Fast (~6s over all of app/code/Uptactics on pps) — scan the module, not one file.

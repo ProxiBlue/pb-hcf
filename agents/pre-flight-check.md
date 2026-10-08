@@ -1,6 +1,6 @@
 ---
 name: pre-flight-check
-description: "pb-hcf pre-plan gate — verifies onboarding artifacts (.claude/CLAUDE.md, .claude/testing.md, .claude/wires.json, pb-hcf fence in CLAUDE.md), loops .claude/wires.json `playbooks[]` and runs every probe, and refuses to proceed if the working tree is on a protected branch (live/uat/main/master). Returns STATUS: PASS, STATUS: WARN, or STATUS: BLOCK. A BLOCK aborts plan-create — fix the cited issue and re-run. Replaces the manual pre-flight steps from /proxiblue-skills:workflow-build-feature."
+description: "pb-hcf pre-plan gate — verifies onboarding artifacts (.claude/CLAUDE.md, .claude/testing.md, .claude/wires.json, pb-hcf fence in CLAUDE.md), loops .claude/wires.json `playbooks[]` and runs every probe, and refuses to proceed if the working tree is on a protected branch (from .claude/constitution.md if declared, else live/uat/main/master). Stack-aware: only playbooks recorded in wires.json are probed, so a python-stack wire (no codegraph row) never BLOCKs on codegraph. Returns STATUS: PASS, STATUS: WARN, or STATUS: BLOCK. A BLOCK aborts plan-create — fix the cited issue and re-run. Replaces the manual pre-flight steps from /proxiblue-skills:workflow-build-feature."
 model: haiku
 tools: Read, Glob, Bash, mcp__pb-codegraph__list_repos, mcp__graphiti__get_status
 ---
@@ -42,7 +42,7 @@ Verify every file exists. Each missing one is a BLOCK.
 [ -f .claude/wires.json ] && cat .claude/wires.json | jq -r '.playbooks[] | "\(.name)|\(.probe)"'
 ```
 
-For each line `<name>|<probe>`, run the appropriate probe:
+For each line `<name>|<probe>`, run the appropriate probe. **Only playbooks that appear in `wires.json` `playbooks[]` are probed** — the table below is a lookup, not a checklist. A playbook absent from the registry (e.g. `codegraph`, `xhgui`, `visual`, `bricklayer` on a `"stack": "python"` wire, which records no rows for them) is not probed, not reported, and never BLOCKs. Do not infer expected playbooks from the stack or from files on disk.
 
 | Playbook | Probe | Pass criterion |
 |---|---|---|
@@ -59,7 +59,21 @@ A probe that still fails after its retries (graphiti: 3 attempts) is a **BLOCK**
 git rev-parse --abbrev-ref HEAD
 ```
 
-Protected branches by convention (Magento + Mage-OS fleet):
+**Source of the protected list.** If `.claude/constitution.md` declares protected branches, that list REPLACES the default table below. A declaration is either:
+
+- a line `protected_branches: <b1>, <b2>, …` (anywhere in the file), or
+- the `**Protected branches**` bullet under `## Branch rules` with the template's `e.g.` removed — the backticked names on that line are the list (e.g. ``- **Protected branches**: `main`, `production` ``).
+
+```bash
+c=.claude/constitution.md
+decl=$( [ -f "$c" ] && { grep -m1 -E '^[[:space:]-]*protected_branches:' "$c" | sed -E 's/^[^:]*:[[:space:]]*//; s/[`,]/ /g'; \
+        grep -E '\*\*Protected branches\*\*' "$c" | grep -v 'e\.g\.' | head -n1 | grep -oE '`[^`]+`' | tr -d '`'; } | tr -s ' \n' ' ' )
+# non-empty $decl → use it; empty → default table below
+```
+
+The template's placeholder bullet (still containing `e.g.`) is NOT a declaration. Cite the source in your output (`Branch: ✓ … (protected list from .claude/constitution.md)` vs `(default list)`).
+
+Default protected branches by convention (Magento + Mage-OS fleet) — used when the constitution declares none:
 
 | Branch | Why protected |
 |---|---|
@@ -83,7 +97,7 @@ Then re-run /hcf:plan-create.
 
 If the current branch is a feature branch (anything else, e.g. `feature/362-pickup-points`), PASS this check silently.
 
-**Per-project override**: if a project has a non-standard LIVE-equivalent branch (e.g. `production`, `release`), the project can override this agent with a local `.claude/agents/pre-flight-check.md` that extends the protected list. Plugin agent body stays canonical.
+**Per-project override**: if a project has a non-standard LIVE-equivalent branch (e.g. `production`, `release`), declare it in `.claude/constitution.md` (see above) — preferred. A local `.claude/agents/pre-flight-check.md` override still works but is no longer needed for this. Plugin agent body stays canonical.
 
 ## Output format
 

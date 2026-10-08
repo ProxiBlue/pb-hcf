@@ -62,7 +62,7 @@ STATUS: PASS — batch <B>: <E2E_RUNS> Playwright run(s) across <TASKS> task(s),
 ```
 STATUS: PUSHBACK — batch <B>: Playwright over-iteration — extract to unit
 - task <NNN>: <n> Playwright runs (budget 8). Top spec: <spec> x<k>. Top --grep: <grep> x<k>.
-Action: move the logic being iterated (Alpine/JS state, view-model branches, price/guard rules) into a `node --test` JS unit or PHPUnit test, iterate RED→GREEN there, then ONE scoped Playwright run per green cycle (testing.md → "Playwright run budget").
+Action: move the logic being iterated (Alpine/JS state, view-model branches, price/guard rules) into the stack's fast layer — magento: a `node --test` JS unit or PHPUnit test; python: a pytest test (pure function, or the route via `httpx.ASGITransport` — no browser) or `node --test` for extracted static JS — iterate RED→GREEN there, then ONE scoped Playwright run per green cycle (testing.md → "Playwright run budget").
 ```
 
 PUSHBACK is advisory for the batch just finished (the runs already happened) — it is aimed at the NEXT batches' workers and at the plan author. It never blocks.
@@ -70,6 +70,7 @@ PUSHBACK is advisory for the batch just finished (the runs already happened) —
 ## When in doubt
 
 - Count only `family:"e2e"` records inside the batch window. Never estimate from transcripts.
+- Spec attribution matches `*.spec.ts` names. Python projects driving Playwright via `pytest-playwright` (`test_*.py` under the e2e spec dir) are still counted per run but land in `unattributed` unless task files name the spec — say "attribution approximate (pytest-playwright specs)" in the verdict.
 - A shared spec named in several task files inflates attribution across those tasks — that is why `BATCH_TASKS` scopes the owner map. If you could not fill it on a multi-task batch, say "attribution approximate" in the verdict.
 - Read-only: you write nothing but the verdict line below (the script removes its own scratch files).
 

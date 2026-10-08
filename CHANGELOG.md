@@ -2,7 +2,22 @@
 
 ## [Unreleased]
 
-### Added (post-0.5.0, unreleased)
+## [0.6.0] — 2026-10-08
+
+### Added — stack awareness (`python` | `magento`); Magento behaviour unchanged
+
+- **Wire `--stack=python|magento`.** Auto-detect: `composer.json` + (`app/etc` or `bin/magento`) → magento; `pyproject.toml`/`requirements.txt` without `composer.json` → python; anything else → magento (pre-0.6.0 behaviour). Recorded as `"stack"` in `.claude/wires.json` (missing key = magento). Python installs `graphiti`, `security`, `bugsink`, `prod-shape` + constitution only; `codegraph`, `xhgui`, `visual`, `bricklayer` are skipped with **no** `wires.json` rows. Python fence text has no "Magento wiring" / `rector.php`; points at `[tool.ruff]` + `scripts/ruff-check.sh`. New recipe row: `--stack=python --enable=<16-agent python set>`. Warns when `codegraph-reviewer` is enrolled on python.
+- **`pre-flight-check`** — probes only `wires.json` rows (stated explicitly; python wires never BLOCK on codegraph). Protected branches read from `.claude/constitution.md` (`protected_branches: a, b` line, or the `**Protected branches**` bullet with `e.g.` removed); else default live/uat/main/master.
+- **`mutation-tester`** — runner abstraction: `vendor/bin/infection` → existing path unchanged; else mutmut (`.venv/bin/mutmut` / `uv run mutmut`) on changed src `.py` (excl. tests/, conftest.py, scripts/, migrations), kill rate + covered kill rate computed with Infection semantics, same PASS/PUSHBACK/PASS-with-note contract + `_mutation_tester.md`. `.claude/testing.md` may declare `mutation_paths`, `mutation_min_msi`, `mutation_min_covered_msi` (mutmut floors; Infection keeps `infection.json5`).
+- **`codegraph-reviewer`** — coverage parser accepts Cobertura (coverage.py) as well as Clover; path `var/coverage.xml` → `coverage_xml:` in testing.md → `coverage.xml`. SKIP path unchanged.
+- **Security trio** — `security-defensive-auditor` gains a "Python / FastAPI controls" catalogue (Depends auth on every router, CSRF for cookie-session forms, argon2/bcrypt, cookie flags, CORS, httpx redirects + SSRF, Jinja autoescape, rate limiting, pydantic-settings secrets never logged, Stripe/Pin webhook signature verification), chosen by stack. `security-static-analyst` gains FastAPI/Python sinks. `security-adversarial-tester` runs audits from `$(git rev-parse --show-toplevel)` (was hard-coded `/var/www/html`) and gains a `uv.lock`/`requirements.txt` pip-audit path. All three + `security-quorum` skip the codegraph probe when no codegraph row is wired.
+- **`issue-sentinel`** — log fallback paths from `log_paths` (testing.md or wires.json) if declared; python default `.ddev/uvicorn.log` (journald is prod-only, skipped). Bricklayer triage remains wires.json-gated.
+- **`post-plan-manual-test-plan` / `post-plan-playwright-bucket-split` / `post-batch-playwright-churn`** — stack-neutral wording; e2e spec dir from `e2e_spec_dir:` in testing.md (fallback magento path / `tests/e2e`); python fast bucket = pytest + `httpx.ASGITransport`; `gh-comment-hidden.sh` resolved by checking container then host path.
+- **`pre-commit-adversarial-pass`** — python: ruff-diff judgment replaces the rector step; FastAPI auth-path hints. New `scripts/ruff-check.sh` mirrors `rector-check.sh` (exit 0 when ruff absent/clean, 1 + diff when fixes proposed).
+- **Templates** — `templates/sentry-python/README.md` (`sentry-sdk[fastapi]` init keyed on `<PREFIX>_SENTRY_DSN`, environment tag, `traces_sample_rate=0`, `send_default_pii=False`, one Bugsink project per environment); `templates/mutmut/README.md` (`[tool.mutmut]` example, current + legacy key names). Playbooks `security.md`, `bugsink.md`, `graphiti.md` gain Python notes (Magento content kept).
+- **`/pb-hcf:modernization-sweep`** — refuses on python stack, pointing to `ruff check --select UP --fix`.
+
+### Added (post-0.5.0, folded into 0.6.0)
 
 - **Pipeline-agent fixes from pvcpipesupplies #519 (2026-10-01).**
   - **Hook verdict contract** — every enrollable agent now ends by appending `- <ts> <name> <phase>/<order>: <VERDICT> — <note>` to `<plan-dir>/_hook_verdicts.md` (`pre-plan` agents → `.claude/plans/_pre_plan_verdicts.md`; no plan dir exists yet). Print-only / prose-only agents (`post-commit-verify-handoff`, `-build-summary`, `-build-timing`, `pre-flight-check`, `pre-plan-graphiti-recall`, `post-plan-playwright-bucket-split`) are now provably fired. `pre-mortem` gains `Bash` for the append.

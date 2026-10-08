@@ -52,7 +52,7 @@ For each modified non-trivial symbol:
    - Other modules' DI preferences that substitute the modified class
 3. **For new DI / events / layout wiring** in the diff — query the graph for collisions with existing wiring on the same target. Stacking matters; replacing breaks third parties.
 
-### Step 3b — Coverage analysis (when `var/coverage.xml` exists)
+### Step 3b — Coverage analysis (when a coverage XML exists — Clover or Cobertura)
 
 The tdd-worker is expected to invoke PHPUnit with `--coverage-clover=var/coverage.xml` on PHPUnit-layer GREEN steps (see project's `.claude/testing.md` for the exact command). If that file exists when this review runs, consume it to surface coverage-based findings — these complement (don't replace) the impact analysis above.
 
@@ -60,13 +60,18 @@ The tdd-worker is expected to invoke PHPUnit with `--coverage-clover=var/coverag
 test -f var/coverage.xml && echo "coverage data available"
 ```
 
+Path resolution: `var/coverage.xml` first (PHPUnit Clover — unchanged default). If absent, use the path declared as `coverage_xml: <path>` in `.claude/testing.md`, else `coverage.xml` at the project root (coverage.py's `coverage xml` / `pytest --cov-report=xml` default, Cobertura format). First file found wins; call it `$COV`.
+
 If the file is missing: skip this step entirely. Note in the summary that coverage data was unavailable. Do NOT make this a blocker — coverage is additive context, not a precondition.
 
 If the file is present, for each modified symbol in the diff:
 
-1. **Parse `var/coverage.xml`** (Clover format) — find the `<class name="...">` / `<line num="N" .../>` entries matching the changed PHP files.
+1. **Parse `$COV`** — detect the format from the root element first (both use `<coverage>` as root):
+   - **Clover** (PHPUnit): root `<coverage generated="…">` with a `<project>` child → find the `<file name="…">` / `<class name="...">` / `<line num="N" count="C" .../>` entries matching the changed PHP files (`count="0"` = uncovered).
+   - **Cobertura** (coverage.py, also some JS tools): root `<coverage line-rate="…" …>` with `<packages>/<package>/<classes>/<class filename="…">` → each `<class filename="src/pkg/mod.py">` holds `<lines><line number="N" hits="H"/>` (`hits="0"` = uncovered). `filename` is relative to the `<sources><source>` root — join them before matching against diff paths. Method/function spans are not reliable in coverage.py output; map changed line ranges from the diff hunks to `<line number>` entries instead.
+   - Neither shape → treat as missing (skip this step, note `unrecognised coverage format`).
 2. **Modified method with 0% coverage of any non-trivial line** → **Critical** finding: "worker changed `Foo::bar` but no test exercises lines X–Y of the change. Behaviour change is unverifiable."
-3. **Coverage of a modified method dropped post-change** → **Important** finding (only if a baseline `var/coverage.xml.baseline` exists from BASELINE_REF — if not, skip this rule): "`Foo::bar` was 87% covered, now 64% — worker removed test surface on the modified branches."
+3. **Coverage of a modified method dropped post-change** → **Important** finding (only if a baseline `$COV.baseline` (e.g. `var/coverage.xml.baseline`) exists from BASELINE_REF — if not, skip this rule): "`Foo::bar` was 87% covered, now 64% — worker removed test surface on the modified branches."
 4. **New public method (added in diff) with 0% test coverage** → **Critical**: "new public API `Bar::baz` lacks any test."
 5. **New private method with 0% coverage** → **Minor**: "new private helper `Bar::quux` has no direct test (acceptable if exercised indirectly via callers — verify)."
 

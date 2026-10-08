@@ -74,10 +74,36 @@ Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based h
 | `templates/constitution.md` | Immutable project-invariants template. Installed once by `/pb-hcf:wire` (install-without-overwrite) to `.claude/constitution.md`; then copied unmodified into every plan dir as `_constitution.md` by `pre-implementation-incident-recall`. |
 | `templates/rector/rector.php.dist` + `templates/rector/README.md` | PHP 8.3 modernization convention: code-quality + type-declaration + dead-code rector sets, custom-namespace paths placeholder, Magento-plugin-safety `withSkip()` list. Consumed by `scripts/rector-check.sh`, `pre-commit-adversarial-pass`, and `/pb-hcf:modernization-sweep`. Install via the README; wire adds a `@rector.php` pointer to the `.claude/CLAUDE.md` fence. |
 | `templates/infection/infection.json5.dist` + `templates/infection/README.md` | Infection mutation-testing config consumed by `mutation-tester` — scoped source dirs, min-MSI / min-covered-MSI floors, JSON log path the agent parses for file:line + mutator PUSHBACK entries. |
+| `templates/sentry-python/README.md` | Python/FastAPI sibling: `sentry-sdk[fastapi]` init keyed on `<PREFIX>_SENTRY_DSN`, one Bugsink project per environment. |
+| `templates/mutmut/README.md` | mutmut config (`[tool.mutmut]`) consumed by `mutation-tester` on Python projects. |
+| `scripts/ruff-check.sh` | Python sibling of `rector-check.sh`: `ruff check --diff` on changed `*.py`, exit 1 + diff when fixes proposed, exit 0 when clean or ruff absent. |
 | `templates/sentry/README.md` | Per-project install doc for `justbetter/magento2-sentry` — the Sentry-SDK-compatible module that reports runtime errors into central Bugsink so `issue-sentinel` has something to query. |
 | `templates/otel/otel.env.dist` + `services/otel/README.md` | Claude Code OTLP telemetry: client-side env template (`CLAUDE_CODE_ENABLE_TELEMETRY`, `OTEL_METRICS_EXPORTER`, `OTEL_EXPORTER_OTLP_ENDPOINT`, per-project resource attributes) + collector options doc (SigNoz / Langfuse / plain otel-collector, mirror-of-bugsink singleton pattern). Docs + env only in 0.5.0 — no collector implementation ships yet. |
 | `docs/release-tagging.md` | The `HCF_RELEASE=<plan-name>#<batch-n>` convention — how Bugsink events and `magento2-sentry` releases get tagged so `issue-sentinel` can scope queries to "this batch". |
 | `scripts/rector-check.sh` | Deterministic dry-run gate: rector against changed `app/code/**/*.php` files only, non-empty proposed-transform diff = exit 1. Documented for `post-batch` / `pre-commit` use; consumed as structured input by `pre-commit-adversarial-pass`. |
+
+## Python projects
+
+Since v0.6.0 the wire is stack-aware. On a Python project (e.g. FastAPI) run:
+
+```
+/pb-hcf:wire --stack=python --enable=pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-dag-check,post-plan-manual-test-plan,pre-implementation-incident-recall,issue-sentinel,simplify-pass,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,post-commit-build-timing,pipeline-audit
+```
+
+(`--stack` is auto-detected when `pyproject.toml`/`requirements.txt` exist without `composer.json`; pass it explicitly to be sure. Add `post-plan-playwright-bucket-split,pre-batch-playwright-floor-guard,post-batch-playwright-churn` if the project has a Playwright e2e suite.)
+
+What changes vs Magento:
+
+| Area | Python behaviour |
+|---|---|
+| Playbooks | `graphiti`, `security`, `bugsink`, `prod-shape` + constitution. No `codegraph` / `xhgui` / `visual` / `bricklayer` files or `wires.json` rows — `pre-flight-check` never probes them. |
+| Mutation testing | mutmut (`.venv/bin/mutmut` / `uv run mutmut`) — see `templates/mutmut/README.md`. Floors/paths via `.claude/testing.md` `mutation_paths`, `mutation_min_msi`, `mutation_min_covered_msi`. |
+| Coverage | `codegraph-reviewer` reads Cobertura `coverage.xml` too (only relevant if you enroll it; it SKIPs without a codegraph index). |
+| Security | Defensive auditor walks "Python / FastAPI controls"; static analyst adds Python sinks; `pip-audit` for deps. |
+| Lint / modernization | `scripts/ruff-check.sh` (`ruff check --diff`, enable `UP` for pyupgrade) judged by `pre-commit-adversarial-pass`; `/pb-hcf:modernization-sweep` refuses and points to `ruff check --select UP --fix`. |
+| Runtime errors | `templates/sentry-python/README.md` (`sentry-sdk[fastapi]`, `<PREFIX>_SENTRY_DSN`, one Bugsink project per environment). `issue-sentinel` log fallback: `log_paths` if declared, else `.ddev/uvicorn.log`. |
+| Protected branches | Declare in `.claude/constitution.md` (`protected_branches: main, production`) — `pre-flight-check` uses it instead of the default list. |
+| E2E | Spec dir from `e2e_spec_dir:` in `.claude/testing.md`, else `tests/e2e/`; fast bucket = pytest + `httpx.ASGITransport`. |
 
 ## Authority scope model
 
@@ -386,7 +412,7 @@ These are real trade-offs the design accepts. Revisit when they bite in practice
 
 ### When NOT to use pb-hcf wires
 
-- **Non-Magento project, no graphiti corpus.** `/hcf:plan-orchestrate` direct is fine.
+- **Non-Magento, non-Python project with no graphiti corpus.** `/hcf:plan-orchestrate` direct is fine. (Python projects: see "Python projects" above.)
 - **Quick spike / throwaway code.** Wiring adds discipline that costs ~$0.30-1.00 per plan; not worth it for a 10-line experiment.
 - **Pre-release security sign-off.** Use a heavier full-OWASP quorum (e.g. `/agent-teams team_security` from the proxiblue-skills central catalogue) — `security-quorum` is the per-plan gate, not the release-readiness audit.
 
@@ -554,5 +580,7 @@ Or trust the printed resolved-order line HCF logs at each hook firing.
 | v0.4.3 | **Container-side target detection fix.** v0.4.2's `discover-hooks.sh` auto-detect parsed `.ddev/docker-compose*.yaml` for the mount source (e.g. `~/claude-code-magento-agents`) — correct on host where that path exists, but wrong inside the container where the same agents are visible at `.claude/agents/` via the RO mount and the host path is meaningless. Updated detection order: (1) `--target=<path>` flag → (2) project-local `.claude/agents/` if it exists and has .md files (container-correct via the RO mount) → (3) docker-compose mount source only if the detected host path actually exists on disk → (4) project-local fallback. Lets the same script run correctly on both host and container. SessionStart hook now works end-to-end inside the DDEV container. |
 | v0.4.4–v0.4.9 | Model-tiering iteration (haiku/sonnet/opus assignment across bundled agents, several rounds of reviewer-tier flip-flopping settling on session-inherit for review agents) + the verify-feature contract wired into `post-plan-manual-test-plan`. See `CHANGELOG.md` for the per-version detail. |
 | v0.5.0 | **Verification spine — 4 new enrollable agents, a new `post-batch` hook point, plan-quality + test-quality + runtime-error + pipeline-proof coverage.** Ships `pre-mortem` (post-plan, order 20 — prospective failure analysis, assumes the plan failed and works backwards to causes, distinct lens from devils-advocate), `mutation-tester` (post-implementation, order 45 — Infection mutation testing on changed PHP files, PASS/PUSHBACK on min-MSI + surviving mutants, tests-that-test-the-tests), `issue-sentinel` (**new `post-batch` hook point**, order 30 — queries central Bugsink for issues since batch start, triages via bricklayer `diagnose-error`, thin-log fallback), `pipeline-audit` (post-commit, order 90 — proves which enrolled phases actually fired this run vs silently skipped, mechanizing the hcf-build-integration-gaps lesson). Wire's enrollable-agent table grows to **14 agents at 7 hook points**; `--enable-all` enrolls all 14. Also ships: bricklayer playbook template (probe-gated install, runtime-resolved-truth authority, codegraph cross-reference for resolution-disagreement arbitration) + wire's bricklayer probe; project constitution template (`templates/constitution.md`, install-without-overwrite by wire, injected into every plan dir as `_constitution.md` by `pre-implementation-incident-recall`, checked — WARN only — by `pre-flight-check`); `/pb-hcf:interview` skill (clarity-scored pre-plan scope builder, Harper Reed one-question-at-a-time pattern, 16/20 threshold gate); central Bugsink wire probe (200-or-401-is-reachable, DSN-presence check) + `docs/release-tagging.md` (`HCF_RELEASE=<plan-name>#<batch-n>` convention) + `templates/sentry/README.md` (`justbetter/magento2-sentry` per-project install); `templates/rector/` (PHP 8.3 modernization ruleset + Magento-plugin-safety skip list) + `scripts/rector-check.sh` (deterministic changed-files dry-run gate, non-zero exit on proposed transforms) + `pre-commit-adversarial-pass` extended with a rector-diff judgment step (contested transforms near plugin/observer/DI wiring get file:line risk citations); `/pb-hcf:modernization-sweep` skill (apply-mode rector for existing code, one module × one ruleset per bounded ralph-loop-friendly run, own branch, never self-merges); `templates/otel/otel.env.dist` + `services/otel/README.md` (Claude Code OTLP telemetry client env + collector-options doc — docs/env only, no collector implementation yet). |
+
+| v0.6.0 | **Stack-aware (`--stack=python\|magento`).** Wire auto-detects the stack, records it in `wires.json`, installs only graphiti/security/bugsink/prod-shape on python (no codegraph/xhgui/visual/bricklayer rows), python fence + recipe. Agents branch on stack: mutmut runner in `mutation-tester`, Cobertura in `codegraph-reviewer`, FastAPI controls/sinks in the security trio, ruff-diff in `pre-commit-adversarial-pass` (+ `scripts/ruff-check.sh`), constitution-declared protected branches in `pre-flight-check`, declarable log/spec paths. New `templates/sentry-python/`, `templates/mutmut/`. Magento behaviour unchanged. |
 
 Next planned playbook: `playwright.md` — folds in E2E test design and coverage guidance.

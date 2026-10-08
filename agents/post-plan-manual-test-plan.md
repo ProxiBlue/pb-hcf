@@ -32,8 +32,8 @@ Per `~/claude-plugins-central/seed/marketplaces/proxiblue-skills/skills/manual-t
 
 - **Success Criteria** in `_plan.md` → top-level user stories.
 - **Per-task Requirements (Test Descriptions)** in `.claude/plans/<plan-name>/_task-*.md` → per-task stories.
-- Group stories into **phases**. Default phases for Magento workflow:
-  - `Pre-deployment (UAT)` — stories verifiable on staging before push
+- Group stories into **phases**. Default phases (same for every stack — the names are deployment stages, not framework-specific):
+  - `Pre-deployment (UAT)` — stories verifiable on staging / UAT (or the dev environment, for projects without a UAT stage) before push
   - `Post-deployment (live smoke)` — stories needing live data / payment / external account
 - Each story carries an `@story:` slug (kebab-case, unique).
 
@@ -59,8 +59,10 @@ Write `.claude/test-plans/<ticket>.yml` per SCHEMA.md. Required fields: `ticket`
 For each YAML story where ALL of the following hold:
 
 - `manual_only` is `false`, AND
-- `spec_file` points to a Playwright spec under the project's test tree (typically `tests/m2-hyva-playwright/src/apps/<X>/tests/`), AND
+- `spec_file` points to a Playwright spec under the project's e2e spec dir, AND
 - The story was derived from a specific task file's "Requirements (Test Descriptions)" section (i.e. you can map the story back to a `.claude/plans/<plan-name>/NNN-*.md` file)
+
+**E2E spec dir** (resolve once): the `e2e_spec_dir: <path>` line in `.claude/testing.md` if declared; else by stack (`jq -r '.stack // "magento"' .claude/wires.json`): `magento` → `tests/m2-hyva-playwright/src/apps/<X>/tests/` (unchanged default); `python` → `tests/e2e/`.
 
 Locate that source task file and APPEND (do not replace any existing content) a block at the bottom:
 
@@ -86,17 +88,17 @@ Rules:
 
 ### Step 5 — Post the GH ticket comment
 
-Use the fleet helper that posts AND minimises as off-topic in one go (per `~/claude-skills-central/rules/gh-ticket-comments.md`):
+Use the fleet helper that posts AND minimises as off-topic in one go (per `~/claude-skills-central/rules/gh-ticket-comments.md`). Resolve it by checking both locations — container mount first, host second — rather than assuming which side you run on:
 
-**Inside a DDEV container:**
 ```bash
-/var/www/html/.claude/scripts/gh-comment-hidden.sh <repo> <ticket> "<body>"
+GHC=""
+for c in /var/www/html/.claude/scripts/gh-comment-hidden.sh "$HOME/claude-skills-central/scripts/gh-comment-hidden.sh"; do
+  [ -x "$c" ] && { GHC="$c"; break; }
+done
+[ -n "$GHC" ] && "$GHC" <repo> <ticket> "<body>"
 ```
 
-**On host:**
-```bash
-~/claude-skills-central/scripts/gh-comment-hidden.sh <repo> <ticket> "<body>"
-```
+(Inside a fleet DDEV container the first path resolves; on host / non-DDEV projects the second does.)
 
 **Comment body discipline** — caveman, max 5 lines, status prefix. Apply the gh-ticket-comments rule. Example:
 
@@ -109,7 +111,7 @@ Full plan: .claude/plans/<plan-name>/_plan.md
 
 The phased story list itself is in the YAML; the ticket comment is just a pointer.
 
-If `GH_TOKEN` is unset or the helper is missing → write the YAML, print a warning, do NOT fail the hook (plan-create completion shouldn't depend on GH availability).
+If `GH_TOKEN` is unset or the helper is missing (`$GHC` empty) → write the YAML, print a warning, do NOT fail the hook (plan-create completion shouldn't depend on GH availability).
 
 ## Output format
 

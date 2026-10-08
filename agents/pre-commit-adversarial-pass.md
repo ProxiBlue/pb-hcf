@@ -31,8 +31,8 @@ git diff --cached --stat    # quick overview
 Read the staged diff. Identify:
 - **Input sources added** — new request handlers, new API endpoints, new admin form inputs, new CLI flags
 - **Sink behaviour added** — new SQL queries (raw or builder), new shell calls, new file writes, new HTTP outbound, new deserialization
-- **Dependency changes** — `composer.json` / `composer.lock` / `package.json` / `requirements.txt` diff
-- **Auth-touching paths** — anything under `vendor/magento/module-customer`, `vendor/magento/module-backend`, admin ACLs, session handling
+- **Dependency changes** — `composer.json` / `composer.lock` / `package.json` / `requirements.txt` / `pyproject.toml` / `uv.lock` diff
+- **Auth-touching paths** — magento: anything under `vendor/magento/module-customer`, `vendor/magento/module-backend`, admin ACLs, session handling. python (FastAPI): `auth/`, `security/`, `api/deps.py` / `**/dependencies.py` (the `Depends(...)` providers every router leans on), session/cookie middleware setup, `APIRouter(dependencies=...)` changes, any route whose `Depends(...)` list shrank
 - **Crypto / secrets paths** — anything touching `encrypt`, `encryption_key`, password hashing, token generation
 
 ### Step 2 — Three angles, fast
@@ -42,10 +42,10 @@ For each diff hunk in scope, ask:
 1. **What's the worst input an attacker could send to this code path now?**
    - Cite the file:line + the exact payload class (SQLi, XSS, SSRF, path-traversal, deserialization, command injection, CSRF, IDOR, mass-assignment).
 2. **What's an indirect call chain that bypasses an intended check?**
-   - Use `mcp__pb-codegraph__impact` to enumerate callers of any new public method.
+   - Use `mcp__pb-codegraph__impact` to enumerate callers of any new public method (no codegraph wired — python stack — `Grep` callers and `Depends(` references instead).
    - Check whether the new method's expected pre-condition (auth, validation, idempotency check) is enforced by EVERY caller — not just the obvious ones.
 3. **Does any new dependency carry a known CVE in the pinned version?**
-   - Use `composer.lock` / `package.json` diff to identify version bumps or new deps.
+   - Use `composer.lock` / `package.json` / `uv.lock` / `requirements.txt` diff to identify version bumps or new deps.
    - For each: `WebSearch` for `<package> <version> CVE`. If a hit, `WebFetch` the NVD entry. Cite CVE ID + summary + fixed-version.
 
 ### Step 3 — Cross-check graphiti for the same patterns
@@ -56,7 +56,21 @@ mcp__graphiti__search_memory_facts(group_ids=["<project-id>", "fleet"], query="<
 
 If a prior incident in graphiti matches a finding here, that escalates the severity (the org has been bitten by this exact thing before).
 
-### Step 4 — rector-diff judgment (deterministic layer's findings, judged here)
+### Step 4 — lint/modernization-diff judgment (deterministic layer's findings, judged here)
+
+**Pick by stack** (`jq -r '.stack // "magento"' .claude/wires.json`): `magento` → Step 4 (magento) below, unchanged. `python` → Step 4 (python), skip the rector step entirely.
+
+#### Step 4 (python) — ruff-diff judgment
+
+`scripts/ruff-check.sh` (plugin script — run it from the project root: `"$CLAUDE_PLUGIN_ROOT/scripts/ruff-check.sh"` or a project copy at `scripts/ruff-check.sh`) is the deterministic layer: it runs `ruff check --diff` on changed `*.py` files and exits `1` + the proposed fix diff when ruff has fixes to propose, `0` when clean or ruff is absent (read stdout to tell which). Modernization (the rector-equivalent) comes from ruff's pyupgrade rules — `UP` in the project's `[tool.ruff.lint] select`; if `UP` isn't selected, note that in the verdict as a suggestion, not a concern.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT:-.}/scripts/ruff-check.sh"
+```
+
+Judge only the contested remainder: fixes that change runtime behaviour rather than style — `UP` rewrites of `typing` constructs on Pydantic models / FastAPI signatures where the target Python version in `pyproject.toml` (`requires-python` / `target-version`) is lower than the runtime; removed "unused" imports that are actually side-effect imports (router registration, model registration for SQLAlchemy metadata / Alembic autogenerate, `__init__` re-exports); `B`/`S` autofixes touching auth dependencies. Cite `file:line` + the proposed change + the risk, or note reviewed-with-no-risk.
+
+#### Step 4 (magento) — rector-diff judgment
 
 `scripts/rector-check.sh` is the **deterministic layer**: it dry-runs rector (per
 `templates/rector/rector.php.dist`) scoped to changed `app/code/**/*.php` files (same
@@ -111,7 +125,8 @@ Adversarial sweep of staged diff:
   - <M> sink-behaviour additions reviewed
   - <K> dependency changes reviewed (no CVE hits)
   - rector-diff: scripts/rector-check.sh clean, or contested transforms reviewed with no
-    Magento-wiring risk found
+    Magento-wiring risk found   (python: ruff-diff: scripts/ruff-check.sh clean, or contested
+    fixes reviewed with no runtime-behaviour risk found)
   - Cross-checked graphiti for matching prior incidents — none.
 
 Tool calls: codegraph=<n>, graphiti=<n>, web=<n>
@@ -153,7 +168,7 @@ If you would have used `BLOCK` — DON'T. Tests already passed and the security-
 - A finding with no exploit hypothesis is not a finding. "Could be vulnerable" → drop.
 - A finding without an indirect-caller chain (when one is relevant) is half-baked. Use `mcp__pb-codegraph__impact`.
 - Speed matters. Don't re-run the full security-quorum analysis — that already happened. You're looking for what changed BETWEEN quorum verdict and final commit (style fixes, last-minute edits, dependency tweaks).
-- CVE checks are high-leverage; always do them when `composer.lock` / `package.json` changed.
+- CVE checks are high-leverage; always do them when `composer.lock` / `package.json` / `uv.lock` / `requirements.txt` changed.
 
 ## Final step — append your hook verdict line (artefact contract)
 

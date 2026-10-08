@@ -44,7 +44,7 @@ Do not go hunting outside the change. Follow the data flow / controls / attack s
 pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/registry.json}"
 ```
 
-If codegraph is unreachable: note the limitation in your evidence_for_vote, proceed with code-only static analysis.
+If codegraph is unreachable — or not wired at all (no `codegraph` row in `.claude/wires.json`, e.g. `"stack": "python"`; skip the probe in that case) — note the limitation in your evidence_for_vote, proceed with code-only static analysis (Grep for callers instead of `impact`).
 
 For graphiti context (retry up to 3x, 0s/3s/6s backoff, before treating as unreachable — neo4j has a scheduled ~15-20s nightly backup-dump outage at 02:30 AWST):
 ```
@@ -76,9 +76,22 @@ Hunt for:
 - **SSRF** — `curl`, `file_get_contents`, `Magento\Framework\HTTP\Client\Curl` with partially user-controlled URLs
 - **CSRF** — state-changing POST/PUT/DELETE endpoints without form_key / CSRF token
 
+**Python / FastAPI sinks** (stack = python, or any `.py` in the audit target):
+- **OS command** — `subprocess.*(…, shell=True)`, `os.system`, `os.popen`, `subprocess` with a single string built from input, `asyncio.create_subprocess_shell`
+- **Deserialisation** — `pickle.load(s)`, `shelve`, `marshal.loads`, `yaml.load` without `Loader=yaml.SafeLoader` (use `yaml.safe_load`), `jsonpickle.decode`
+- **Code execution** — `eval`, `exec`, `compile` on input; `importlib.import_module` / `getattr` dispatch on user-supplied names
+- **Path traversal** — `UploadFile.filename`, path params, or form fields joined into upload/output/temp dirs (`open`, `Path(base) / name`, `shutil.*`, `FileResponse(path)`) without `secure_filename`-style normalisation + `resolved.is_relative_to(base)` check; zip/tar extraction without member-path checks (`tarfile.extractall` without `filter="data"`)
+- **SQL** — f-string / `%` / `.format` / `+` into `sqlite3` `execute`, `psycopg` `cursor.execute`, SQLAlchemy `text()` or `engine.exec_driver_sql`
+- **Open redirect** — `RedirectResponse(url=<user input>)` / `next=`/`return_to=` params not restricted to relative paths or an allowlisted host
+- **XML / XXE** — `lxml.etree.parse/fromstring` with default parser on uploads (`resolve_entities=True`, `no_network=False`), `xml.etree`/`minidom` on untrusted input (prefer `defusedxml`)
+- **SVG / XML uploads** — user-uploaded SVG parsed or re-served inline (script/`foreignObject`/external entity), served without `Content-Disposition: attachment` or a sanitiser; image/PDF parsers (Pillow decompression bomb limits, pdf libs) on untrusted files
+- **Template injection** — `jinja2.Template(user_string)`, `Environment(autoescape=False)`, `|safe` / `Markup()` on input
+- **SSRF** — `httpx`/`requests`/`urllib` with user-influenced URLs, especially `follow_redirects=True`
+- **Crypto / secrets** — `random` for tokens (use `secrets`), `hashlib.md5/sha1` for passwords, JWT decode without pinned `algorithms`, secrets logged or returned in error bodies
+
 ## Step 4 — trace source → sink
 
-For each (source, sink) pair, walk the data flow. **Use `mcp__pb-codegraph__impact` on every modified public method or class** in the audit target to surface indirect callers — plugins, observers, DI preferences. Grep alone misses these on Magento.
+For each (source, sink) pair, walk the data flow. **Use `mcp__pb-codegraph__impact` on every modified public method or class** in the audit target to surface indirect callers — plugins, observers, DI preferences. Grep alone misses these on Magento. (Python stack without codegraph: grep the symbol across the package + `Depends(` chains, read each caller.)
 
 Citation discipline: a finding without a concrete file:line is NOT a finding. Drop it.
 

@@ -42,10 +42,12 @@ Do not go hunting outside the change. Follow the data flow / controls / attack s
 pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/registry.json}"
 ```
 
+Skip this probe when `.claude/wires.json` has no `codegraph` row (python-stack wires); use Grep/Read instead of codegraph lookups.
+
 ## Step 2 — enumerate attack surface
 
 For the audit target, enumerate every place an attacker could reach:
-- Public HTTP routes (controller `execute()` methods, GraphQL resolvers, REST endpoints)
+- Public HTTP routes (controller `execute()` methods, GraphQL resolvers, REST endpoints; FastAPI `@router.<verb>` / `@app.<verb>` handlers and their `Depends(...)` chains)
 - Webhook receivers (incoming signed/unsigned)
 - Admin/backend routes (assume the attacker is an authenticated low-privilege user attempting privilege escalation)
 - File-upload handlers
@@ -78,7 +80,7 @@ Write the **specific payload + the file:line you'd land it at**. Without both, i
 Enumerate every dependency manifest in the audit target's scope:
 - `composer.json` + `composer.lock`
 - `package.json` + `package-lock.json` / `yarn.lock`
-- `requirements.txt` / `Pipfile.lock`
+- `requirements.txt` / `Pipfile.lock` / `pyproject.toml` + `uv.lock` / `poetry.lock`
 - `go.mod` / `go.sum`
 - `Gemfile.lock`
 
@@ -101,16 +103,20 @@ For each match: name the CVE, the affected version range, the fix version, the e
 Also run native audit tools where available:
 
 ```bash
+ROOT="$(git rev-parse --show-toplevel)"   # /var/www/html inside fleet DDEV containers; repo root anywhere else
 composer audit --format=json 2>/dev/null
 # OR
-cd /var/www/html && npm audit --json 2>/dev/null
-# OR
-pip-audit --format=json 2>/dev/null
+cd "$ROOT" && npm audit --json 2>/dev/null
+# OR (Python) — prefer the locked set; fall back to the active env
+cd "$ROOT" && { [ -f uv.lock ] && uv export --frozen --no-hashes --format requirements-txt 2>/dev/null | pip-audit --format=json -r /dev/stdin 2>/dev/null; } \
+  || { [ -f requirements.txt ] && pip-audit --format=json -r requirements.txt 2>/dev/null; } \
+  || { [ -x .venv/bin/pip-audit ] && .venv/bin/pip-audit --format=json 2>/dev/null; } \
+  || uvx pip-audit --format=json 2>/dev/null
 ```
 
 Cross-check tool output against your manual lookup. Flag mismatches.
 
-**Dependency scope:** only packages the change adds, bumps, or newly calls into are in scope. A known high/critical CVE in an untouched, already-present dependency is `in_scope: false` (ticketed, not voted). Run `composer audit` / `npm audit` once, but classify each hit this way.
+**Dependency scope:** only packages the change adds, bumps, or newly calls into are in scope. A known high/critical CVE in an untouched, already-present dependency is `in_scope: false` (ticketed, not voted). Run `composer audit` / `npm audit` / `pip-audit` once, but classify each hit this way.
 
 ## Step 5 — graphiti recall for past incidents
 

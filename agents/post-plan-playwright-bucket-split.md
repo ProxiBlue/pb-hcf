@@ -19,6 +19,16 @@ HCF v2's `post-plan` hook passes:
 
 Read `.claude/plans/<plan-name>/_plan.md` and each per-task `*.md` file yourself. Also read `.claude/testing.md` (or wherever the project's testing config resolves — `<testing>` in `.claude/CLAUDE.md`) for the exact Rule 2 criteria, the extraction pattern, and the Playwright coverage floor rule — you must not improvise these; they are the source of truth this agent enforces.
 
+## Stack
+
+Resolve once: `jq -r '.stack // "magento"' .claude/wires.json` (absent file/key → `magento`). The stack changes only *which files count as UI* (Step 1) and *what the fast bucket runs on* (Step 4); the heading names, `**Domain**:` contract and floor rule are identical across stacks because `playwright-floor-guard.sh` matches them literally.
+
+| | magento (default, unchanged) | python |
+|---|---|---|
+| Rule-2 (UI-touching) files | `.phtml`, `layout/*.xml`, theme, frontend JS/CSS/LESS, Hyvä components | Jinja/HTML templates (`templates/**/*.html`, `*.jinja*`), `static/**` JS/CSS, HTMX attributes, any route returning `HTMLResponse`/`TemplateResponse` |
+| Fast bucket runner | `node --test` on extracted JS module | `pytest` — pure functions directly; HTTP behaviour via `httpx.AsyncClient(transport=httpx.ASGITransport(app=app))` (no browser, no server); `node --test` still applies to extracted static JS |
+| Playwright spec dir | `tests/m2-hyva-playwright/...` | `e2e_spec_dir` from `.claude/testing.md`, else `tests/e2e/` |
+
 ## Process
 
 ### Step 0 — Idempotency check (per file)
@@ -27,7 +37,7 @@ Before touching a task file, check whether it already has BOTH a `## Requirement
 
 ### Step 1 — Determine Rule 2 applicability per task
 
-For each task file that still has the flat `## Requirements (Test Descriptions)` heading, read its Description + Context. Rule 2 applies if the task touches any of: `.phtml`, `layout/*.xml`, theme, frontend JS/CSS/LESS, Hyvä components (per `testing.md` Rule 2 — read it, don't paraphrase from memory).
+For each task file that still has the flat `## Requirements (Test Descriptions)` heading, read its Description + Context. Rule 2 applies if the task touches any of the stack's Rule-2 files (see Stack table — magento: `.phtml`, `layout/*.xml`, theme, frontend JS/CSS/LESS, Hyvä components; python: templates, static assets, HTML-returning routes) — per `testing.md` Rule 2 when it defines one (read it, don't paraphrase from memory); `testing.md` wins over the table.
 
 - **Rule 2 does not apply** (backend-only, Rule 3) → leave the task file's Requirements section untouched. Do not force a split on backend-only tasks; there is nothing to bucket.
 - **Rule 2 applies** → proceed to Step 2.
@@ -42,7 +52,7 @@ If floor-domain and no `**Domain**:` line exists yet, infer the specific value (
 
 ### Step 3 — Classify each existing requirement bullet
 
-For each `- [ ]` item under the current flat Requirements section, decide: does proving this specific behavior genuinely require a real browser (real DOM computed styles/layout, real network timing, real Stripe iframe boundary, real Loki AJAX morph cycle, real admin/customer session state)? If NO to all of those — JS-unit bucket. If YES to any — Playwright bucket.
+For each `- [ ]` item under the current flat Requirements section, decide: does proving this specific behavior genuinely require a real browser (real DOM computed styles/layout, real network timing, real Stripe iframe boundary, real Loki AJAX morph cycle / HTMX swap, real admin/customer session state in a browser)? If NO to all of those — JS-unit (fast) bucket. On the python stack, "needs an HTTP request" is NOT "needs a browser" — status codes, redirects, JSON/HTML bodies, cookies and auth dependencies are provable with pytest + `httpx.ASGITransport`. If YES to any — Playwright bucket.
 
 When in doubt, prefer JS-unit — that is the whole point of the discipline this agent enforces. Do not move an item to Playwright just because it "feels UI-related"; the test is whether the ASSERTION itself needs the browser, not whether the code under test happens to run in the browser.
 
@@ -56,7 +66,7 @@ Write requirements as exact test names. These become the test method names.
 - [ ] `...`
 ```
 
-With:
+With (magento — unchanged; python uses the same headings so the guard still matches, only the parenthetical differs: `## Requirements — JS unit (fast, pytest + httpx ASGITransport — no browser)`):
 ```markdown
 ## Requirements — JS unit (fast, node --test on extracted module)
 {classified JS-unit items, unchanged wording}

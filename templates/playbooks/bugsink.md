@@ -67,6 +67,15 @@ framework frames.
 questions. An issue with `is_resolved: true` but a `last_seen` after its fix
 date is a **regression** — flag it with both timestamps.
 
+## Python projects
+
+Same API, same queries. Differences:
+
+- **Not in a ddev container?** Use `$BUGSINK_URL_HOST` (the `_CONTAINER` URL only resolves inside fleet DDEV containers). If the env file lives elsewhere on a non-fleet host, say so and skip.
+- **SDK side:** `sentry-sdk[fastapi]` initialised from `<PREFIX>_SENTRY_DSN` with an `environment` tag — see `pb-hcf/templates/sentry-python/README.md`. One Bugsink project per environment (dev vs prod), same as the PHP convention above.
+- **Query 2 filter:** match module paths, not Magento vendor dirs — e.g. `test("app/billing|api/routes"; "i")` against `last_frame_filename`; Python frames carry the module path relative to the repo/site-packages.
+- **`transaction`** on FastAPI events is the route path template (`/invoices/{invoice_id}`) — filter on it when the plan changes a route.
+
 ## How to use it in the HCF loop
 
 - **pre-plan:** run Query 1 + 2 for the touched area on the `-prod` project.

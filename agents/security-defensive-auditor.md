@@ -40,6 +40,10 @@ Do not go hunting outside the change. Follow the data flow / controls / attack s
 pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/registry.json}"
 ```
 
+Skip this probe when `.claude/wires.json` has no `codegraph` playbook row (e.g. `"stack": "python"` wires) — then every `mcp__pb-codegraph__impact` verification below falls back to `Grep` + `Read` of the call chain (cite the grep and the call sites read).
+
+**Pick the control catalogue by stack.** `jq -r '.stack // empty' .claude/wires.json`; if absent, detect from manifests: `composer.json` + (`app/etc/` or `bin/magento`) → `magento`; `pyproject.toml` or `requirements.txt` without `composer.json` → `python`; else `magento`. `magento` → walk the Magento sections in Step 2. `python` → walk **"Python / FastAPI controls"** instead. A mixed repo (e.g. a Python service inside a Magento project) → walk both, per file language.
+
 ## Step 2 — enumerate the controls in scope
 
 For the audit target's domain, list the framework-provided + project-provided defenses that SHOULD apply. Examples by domain:
@@ -83,6 +87,45 @@ For the audit target's domain, list the framework-provided + project-provided de
 - Curl client uses `Magento\Framework\HTTP\Client\Curl` with `setOption(CURLOPT_FOLLOWLOCATION, false)` if not needed
 - Webhook signatures HMAC-verified with `hash_equals` (constant-time comparison)
 
+### Python / FastAPI controls (stack = python)
+
+**Routing / access control (A01):**
+- Every `APIRouter` / route that is not deliberately public has an auth dependency — `dependencies=[Depends(require_user)]` on the router or a `Depends(...)` param on the endpoint. Enumerate routes in the change (`grep -nE '@(router|app)\.(get|post|put|patch|delete)'`) and verify each one; a public route needs an explicit reason.
+- Object-level authorization: the dependency's user is compared to the resource owner (no IDOR via path ids).
+- Admin-only routes gate on role/scope inside the dependency, not in the handler body after side effects.
+
+**CSRF (A01/A03) — cookie-session forms only:**
+- Any state-changing route authenticated by a session cookie (HTML form posts, HTMX) validates a CSRF token (`starlette-csrf`, `fastapi-csrf-protect`, or a double-submit token compared with `hmac.compare_digest`). Bearer-token-only APIs are exempt — state why.
+- Session cookie `SameSite=Lax|Strict`.
+
+**Crypto / secrets (A02):**
+- Password hashing via argon2 (`argon2-cffi`, `pwdlib[argon2]`, passlib `argon2`) or bcrypt — never `hashlib.sha*`/`md5` for passwords; verify uses the library's constant-time `verify`.
+- Cookies set with `secure=True, httponly=True, samesite="lax"|"strict"` (`response.set_cookie(...)`, `SessionMiddleware(https_only=True, same_site=...)`).
+- Secrets loaded via `pydantic-settings` `BaseSettings` (`SecretStr` for keys) from env — never hard-coded, never logged: grep for the setting name in `logger.`/`print(`/`repr` paths and exception messages; `SecretStr` must not be `.get_secret_value()`'d into logs.
+- Token comparison with `hmac.compare_digest` / `secrets.compare_digest`; tokens from `secrets.token_urlsafe`.
+
+**CORS / headers (A05):**
+- `CORSMiddleware` `allow_origins` is an explicit list — `["*"]` combined with `allow_credentials=True` is a finding.
+- Security headers middleware (CSP, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `frame-ancestors`) where HTML is served.
+- `debug=False` / no `--reload` in production config; docs routes (`/docs`, `/openapi.json`) gated or disabled if the API is private.
+
+**HTML output (A03 XSS):**
+- Jinja2 `Environment(autoescape=select_autoescape(...))` or `Jinja2Templates` (autoescape on by default) — flag `autoescape=False`, `|safe`, `Markup(...)` on user data.
+
+**Database (A03 injection):**
+- SQLAlchemy Core/ORM with bound parameters; `text()` only with `:named` bind params; sqlite3/psycopg with `?`/`%s` placeholders — never f-string/`%`/`.format` SQL.
+
+**Rate limiting / auth (A07):**
+- Login, password-reset, signup, and expensive endpoints rate-limited (`slowapi`, a reverse-proxy limit you can cite in repo config, or a Redis token bucket).
+- Session/JWT: expiry set, signature algorithm pinned (`algorithms=["HS256"]`/`["RS256"]`, never `none`), session id rotated on login.
+
+**Outbound HTTP (A10 SSRF):**
+- `httpx` clients set `follow_redirects=False` (httpx default) unless needed; any user-influenced URL passes an allowlist of scheme + host, and resolved IPs are checked against private/link-local/metadata ranges (169.254.169.254) before the request.
+- Timeouts set on every client (`httpx.Timeout(...)`).
+
+**Webhooks:**
+- Stripe: `stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)` on the **raw** request body (`await request.body()`), tolerance left at default; Pin Payments / other HMAC webhooks verified with `hmac.compare_digest` over the raw body before any JSON parse or side effect. Idempotency on event id.
+
 ## Step 3 — pass-then-verify EACH control
 
 For each control on your list, run the verification:
@@ -90,7 +133,7 @@ For each control on your list, run the verification:
 | Check | Method |
 |---|---|
 | File / config present | `Read` or `Glob` to the expected path |
-| Code path fires | `mcp__pb-codegraph__impact` on the protector method — confirm the protected sink is in its callers |
+| Code path fires | `mcp__pb-codegraph__impact` on the protector method — confirm the protected sink is in its callers (no codegraph wired → `Grep` the protector/dependency name and `Read` each call site) |
 | Correct usage | Read the actual call site — is the right method / mode being used? (e.g. `escapeHtmlAttr` not `escapeHtml` when output is inside an HTML attribute) |
 | Not disabled | Read project config — any place setting it off? (e.g. `xdebug_enabled` in CI = fine; `csrf_protection: false` in `.env.production` = NOT fine) |
 
@@ -159,7 +202,7 @@ No vote change without new evidence. Output same JSON with `"round": 2`.
 
 # Hard rules
 
-1. **Pass-then-verify, not absence-as-failure.** A control isn't a problem just because you can't find it in the diff — it might live in a centralised middleware. Walk what HCF/Magento provides by default before flagging.
+1. **Pass-then-verify, not absence-as-failure.** A control isn't a problem just because you can't find it in the diff — it might live in a centralised middleware. Walk what HCF/Magento (or FastAPI/Starlette middleware + router-level dependencies) provides by default before flagging.
 2. **Read-only.** No edits, no git, no config writes.
 3. **Cite the actual call site.** Not "Magento has form_key" but "Magento\Framework\Form\FormKey\Validator at line N is called from the modified controller path X via impact-chain Y".
 4. **Documented exceptions are NOT findings.** If graphiti recall surfaces a conscious decision to disable a control, document it but don't fail. Lack of documentation IS a finding (`severity: medium, summary: "control disabled with no rationale on record"`).

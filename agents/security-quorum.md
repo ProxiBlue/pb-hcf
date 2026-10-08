@@ -28,6 +28,7 @@ Verify quorum dependencies once:
 ```bash
 pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/registry.json}" || echo "codegraph unreachable"
 ```
+(When `.claude/wires.json` has no `codegraph` row — e.g. `"stack": "python"` — skip this probe and record `codegraph=not-wired`; that is not a degradation.)
 ```
 mcp__graphiti__get_status
 ```

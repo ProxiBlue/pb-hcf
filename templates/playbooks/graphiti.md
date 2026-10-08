@@ -39,15 +39,17 @@ curl -sS -o /dev/null -w 'HTTP %{http_code}\n' -m 3 http://localhost:8765/mcp
 curl -sS -o /dev/null -w 'HTTP %{http_code}\n' -m 3 http://host.docker.internal:8765/mcp
 ```
 
+Non-DDEV projects (e.g. a Python app run directly on the host or in its own compose stack) use the host URL; from a non-DDEV container use whatever host alias that stack maps to the host (`host.docker.internal` with `extra_hosts: ["host.docker.internal:host-gateway"]` on Linux).
+
 Expect `307` (the server redirects `/mcp/` → `/mcp` — that's the healthy response, NOT a failure). If unreachable, call `mcp__graphiti__get_status` once for a definitive answer.
 
-If the server is down, **do not silently fall back**. State explicitly that graphiti is unreachable and that the analysis lacks discussion / decision context. Suggest the user check `docker logs --since 5m graphiti-mcp` and `docker logs graphiti-neo4j` (see the graphiti-fleet stack's README for the docker-compose location). Proceed with code-only analysis (codegraph + grep) but flag the gap.
+If the server is down, **do not silently fall back**. State explicitly that graphiti is unreachable and that the analysis lacks discussion / decision context. Suggest the user check `docker logs --since 5m graphiti-mcp` and `docker logs graphiti-neo4j` (see the graphiti-fleet stack's README for the docker-compose location). Proceed with code-only analysis (codegraph where wired + grep) but flag the gap.
 
 ## Group model — query both project AND fleet
 
 Every fact has a `group_id`:
 
-- **`<project-id>`** — project-specific. Resolve by: `$DDEV_PROJECT` env var → `basename $(git rev-parse --show-toplevel)`. Per-project quirks, LIVE branch, project-only conventions, per-client preferences.
+- **`<project-id>`** — project-specific. Resolve by: `$GRAPHITI_GROUP_ID` (if set) → `$DDEV_PROJECT` env var → `basename $(git rev-parse --show-toplevel)`, lowercased. Non-DDEV projects (most Python apps) resolve via the git basename unless `GRAPHITI_GROUP_ID` is exported — never `default`/`main`. Per-project quirks, LIVE branch, project-only conventions, per-client preferences.
 - **`fleet`** — TRUE cross-project methodology. Vendor verdicts applying everywhere, organisation-wide rules, tool-use conventions ALL projects follow.
 - **`host`** — host-side agent ops (pb-graphiti plugin internals, fleet-mgmt scripts). Almost never relevant inside a project session — skip unless a host-ops question.
 

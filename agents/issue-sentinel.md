@@ -1,6 +1,6 @@
 ---
 name: issue-sentinel
-description: "pb-hcf post-batch reviewer — queries the central Bugsink error tracker for issues first_seen since this batch started (project + HCF_RELEASE filtered), triages via bricklayer diagnose-error where wired, and returns PASS or structured PUSHBACK with friendly_id + stacktrace excerpt + suspected file:line. Falls back to a thin var/report + cron-stderr scan when Bugsink is unreachable. Writes a `_issue_sentinel.md` verdict/marker to the plan dir every batch."
+description: "pb-hcf post-batch reviewer — queries the central Bugsink error tracker for issues first_seen since this batch started (project + HCF_RELEASE filtered), triages via bricklayer diagnose-error where wired, and returns PASS or structured PUSHBACK with friendly_id + stacktrace excerpt + suspected file:line. Falls back to a thin log scan when Bugsink is unreachable (log_paths from .claude/testing.md / wires.json if declared, else stack defaults: var/report + cron-stderr for Magento, .ddev/uvicorn.log for Python). Writes a `_issue_sentinel.md` verdict/marker to the plan dir every batch."
 tools: Read, Glob, Grep, Bash, Write
 ---
 
@@ -123,10 +123,24 @@ Independent of whether the Bugsink API path was reachable, also do the cheap loc
 runtime noise never reaches an SDK-instrumented path (fatal errors before bootstrap, cron
 workers that crash before the SDK initializes):
 
+**Which paths.** In priority order:
+
+1. `log_paths` declared in `.claude/testing.md` (a line `log_paths: <path>[, <path>…]`) or in `.claude/wires.json` (top-level `"log_paths": [...]`) — scan exactly those: directories via `find <dir> -newer <ref> -type f`, files via the grep below. Declared paths REPLACE the defaults.
+2. Otherwise, stack defaults (stack = `.claude/wires.json` `"stack"`, absent → `magento`):
+   - **magento** (unchanged):
+
 ```bash
 find var/report -newer <marker-file-or-timestamp-ref> -type f 2>/dev/null
 grep -E '(Fatal error|Uncaught|ERROR)' var/log/cron.log 2>/dev/null | tail -n 50
 ```
+
+   - **python** — dev-only log; journald (`journalctl -u <unit>`) is prod-only, so it is NOT scanned here:
+
+```bash
+grep -E '(Traceback \(most recent call last\)|ERROR|CRITICAL|Exception)' .ddev/uvicorn.log 2>/dev/null | tail -n 50
+```
+
+   For Python, report matching `Traceback` blocks with their last frame (`File "…", line N`) as the suspected file:line.
 
 This is intentionally thin — new files in `var/report/` since the marker, plus the last N lines
 of cron log matching stderr-shaped patterns. It is NOT full log tailing; Bugsink owns that job
@@ -154,7 +168,7 @@ Batch-start marker: <ISO-8601 timestamp>   <- new marker, written this run
 Bugsink: reachable, queried project=<id> release=<RELEASE>
 New issues (first_seen >= marker, release matched): 0
 Bricklayer triage: <ran on N issues | skipped — bricklayer not wired>
-Log fallback: <N> new var/report file(s), 0 matching cron-stderr lines
+Log fallback: <N> new var/report file(s), 0 matching cron-stderr lines   (python: 0 matching .ddev/uvicorn.log lines; declared log_paths: list them)
 ```
 
 #### `STATUS: PUSHBACK`
@@ -173,8 +187,8 @@ New issues (first_seen >= marker, release matched): <N>
    first_seen: <timestamp>
    Stacktrace excerpt:
      <top 3-5 frames>
-   Suspected file:line: <app/code/...:NN>
-   Bricklayer triage: <correlation finding, or "skipped — bricklayer not wired">
+   Suspected file:line: <app/code/...:NN>   (python: <src/pkg/mod.py:NN>)
+   Bricklayer triage: <correlation finding, or "skipped — bricklayer not wired">   (python stack: always skipped — wire records no bricklayer row)
 
 Required action before this batch is considered clean: investigate and fix each issue above, or
 mark it resolved in Bugsink if it is expected/benign (e.g. a deliberately-tested error path).

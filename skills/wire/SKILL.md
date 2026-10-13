@@ -46,9 +46,9 @@ Resolve the project stack ONCE, before playbook discovery. It decides which play
 | Stack | Playbooks installed | Playbooks skipped (no file, no fence line, **no `wires.json` row**) |
 |---|---|---|
 | `magento` | every `templates/playbooks/*.md` (bricklayer probe-gated — unchanged pre-0.6.0 behaviour) | none |
-| `python` | `graphiti`, `security`, `bugsink`, `prod-shape` (if the template exists), plus the constitution (step 1a) | `codegraph`, `xhgui`, `visual`, `bricklayer` — and any future playbook not on the python allow-list |
+| `python` | `graphiti`, `security`, `bugsink`, `logs`, `prod-shape` (if the template exists), plus the constitution (step 1a) | `codegraph`, `xhgui`, `visual`, `bricklayer` — and any future playbook not on the python allow-list |
 
-The python allow-list is explicit (`graphiti security bugsink prod-shape`): a new playbook template added later is Magento-only until someone adds it to this list. Skipped playbooks are not probed — so `pre-flight-check` (which only probes rows present in `wires.json`) never BLOCKs a python project on codegraph.
+The python allow-list is explicit (`graphiti security bugsink logs prod-shape`): a new playbook template added later is Magento-only until someone adds it to this list. Skipped playbooks are not probed — so `pre-flight-check` (which only probes rows present in `wires.json`) never BLOCKs a python project on codegraph.
 
 ## Playbook discovery
 
@@ -66,6 +66,7 @@ For each discovered playbook, attempt a domain-appropriate reachability probe an
 | `graphiti.md` | `mcp__graphiti__get_status` (URL detected from env — host or `host.docker.internal`) | `status: ok` |
 | `bricklayer.md` | Check for the `vendor/bin/bricklayer` executable first — absent means non-Magento project or bricklayer not installed as a dev dependency, skip straight to unreachable. If present, capture the CLI version via `vendor/bin/bricklayer list \| head -1` (or `vendor/bin/bricklayer --version`, whichever the installed CLI supports) | Executable present + version captured → record it in `details.version` and mark `reachable: true`. Executable absent → mark `reachable: false` and record an install hint in `details.install` pointing at `composer require --dev inchoo/magento-bricklayer` (Magento-project-only dev dependency; absence on a non-Magento project is expected and non-fatal). |
 | `bugsink` (central service, not a per-project playbook file) | Source credentials from the env file — `~/.pb-hcf/bugsink.env` on host, or the equivalent container-mounted copy — never hardcode `BUGSINK_URL_CONTAINER` or `BUGSINK_API_TOKEN` in any committed file. Probe: `curl -sS -o /dev/null -w '%{http_code}\n' -m 3 -H "Authorization: Bearer $BUGSINK_API_TOKEN" $BUGSINK_URL_CONTAINER/api/canonical/0/`. Separately check DSN presence for this project: does a `BUGSINK_DSN_<PROJECT>` var exist in the same env file? | HTTP `200` **or** `401` both count as `reachable: true` (either proves the service answered — a `401` just means the token/scheme was rejected, the service is up). Connection-refused / timeout = `reachable: false`. Record DSN presence as a separate `details.projectDsnVar` boolean/name, independent of reachability. |
+| `logs.md` | Container env check then one query: `[ -n "$LOGS_READ_TOKEN_PROD" ]`, then the `logs-prod` MCP `query` tool (or curl to the log host's `/select/logsql/query`) with `_time:5m \| limit 1`. | HTTP `200` → `reachable: true`, record `details.mcpServers: ["logs-uat","logs-prod"]` + `details.tokenVars`. Token unset or `403` → `reachable: false`, `details.onboard`: mint per-env read tokens, add `LOGS_READ_TOKEN_UAT/PROD=$LOGS_R_<PROJ>_*` to `.ddev/config.yaml` `web_environment` (LIVE branch), restart ddev. Install the playbook unconditionally — it documents onboarding. |
 | `security.md` | No standalone probe — quorum agents reachable as long as `codegraph` + `graphiti` are. Mark `reachable: true` unconditionally; record dependency on the other two playbooks' state in `details`. | n/a |
 | `xhgui.md` | Two-part, both non-fatal. (1) Capture mode: `grep -E '^xhprof_mode:' .ddev/config.yaml` (DDEV default is `prepend` — only `xhgui` stores traces in the DB). (2) Trace store: `ddev mysql -uroot -proot -e "SELECT COUNT(*) FROM xhgui.results"` from host (in-container: `mysql -hdb -uroot -proot -e "…"`). | Query succeeds → `reachable: true`, record trace count in `details.traces` and the configured mode in `details.xhprofMode`. `xhgui` DB/table absent → `reachable: false` with hint in `details.enable`: set `xhprof_mode: xhgui` in `.ddev/config.yaml` (once per project), then `ddev xhprof on` + exercise pages so traces accrue. Install the playbook unconditionally either way — it documents how to enable capture. Zero traces with the DB present is still `reachable: true` (profiling is deliberately off between perf tasks; xhprof has runtime overhead). |
 | `playwright.md` | (future — define when shipping) | TBD |
@@ -120,6 +121,8 @@ For domain-specific tooling and per-agent playbooks, consult the relevant file:
 - **Knowledge graph** (discussions, decisions, planned features, prior incidents) → `@.claude/graphiti.md`
 - **Runtime performance** (page speed, memory, DB query count, function hotspots — from live xhgui profiles) → `@.claude/xhgui.md`
 - **Security audit** (OWASP, vulnerability assessment) → `@.claude/security.md`
+- **Runtime errors** (what's actually breaking — Bugsink) → `@.claude/bugsink.md`
+- **Server/app logs** (uat/prod status+latency per URL, nginx/fpm/slow logs, app logs — `logs-uat`/`logs-prod` MCP; Bugsink first, then this; replaces SSH log reads) → `@.claude/logs.md`
 - **End-to-end testing** (Playwright + coverage) → `@.claude/playwright.md`
 - **PHP-8.3 modernization convention** (rector transform rules + Magento-plugin-safety skip list — generation-time context, not a playbook) → `@rector.php` (install via `templates/rector/README.md`)
 
@@ -138,6 +141,7 @@ For domain-specific tooling and per-agent playbooks, consult the relevant file:
 - **Knowledge graph** (discussions, decisions, planned features, prior incidents) → `@.claude/graphiti.md`
 - **Security audit** (OWASP, vulnerability assessment, FastAPI/Python controls) → `@.claude/security.md`
 - **Runtime errors** (what's actually breaking — Bugsink) → `@.claude/bugsink.md`
+- **Server/app logs** (uat/prod — `logs-uat`/`logs-prod` MCP; Bugsink first, then this) → `@.claude/logs.md`
 - **Production data scale** → `@.claude/prod-shape.md`
 - **Lint + modernization convention** (ruff rules incl. pyupgrade `UP` — generation-time context, not a playbook) → `@pyproject.toml` `[tool.ruff]` (deterministic check: `scripts/ruff-check.sh` in pb-hcf)
 

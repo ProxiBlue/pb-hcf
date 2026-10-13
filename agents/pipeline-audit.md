@@ -58,9 +58,15 @@ if [ -z "$EXPECTED" ]; then
 fi
 [ -z "$EXPECTED" ] && { echo "STATUS: SKIPPED — no enrolled agents discovered"; exit 0; }
 
+# Normalise verdict lines whose timestamp an agent wrote as the literal
+# shell template `$(date -u +...)` (unexpanded; contains spaces, so `[^ ]+`
+# never matched). The agent DID fire — count it, flag the ts as unexpanded.
+# (pps log-shipping 2026-10-11: post-commit-verify-handoff false NO-EVIDENCE.)
+VN=$(mktemp); sed -E 's/^- \$\(date[^)]*\) /- UNEXPANDED-TS /' "$V" > "$VN" 2>/dev/null
+
 # --- plan-create evidence (checked, never assumed) ---
-PC_LINES=$(cat "$V" 2>/dev/null | grep -cE '^- [^ ]+ [^ ]+ post-plan/[0-9]+:|^\| *post-plan/')
-PC_FIRST=$(cat "$V" 2>/dev/null | grep -E '^- [^ ]+ [^ ]+ post-plan/' | awk '{print $2}' | sort | head -1)
+PC_LINES=$(cat "$VN" 2>/dev/null | grep -cE '^- [^ ]+ [^ ]+ post-plan/[0-9]+:|^\| *post-plan/')
+PC_FIRST=$(cat "$VN" 2>/dev/null | grep -E '^- [^ ]+ [^ ]+ post-plan/' | awk '{print $2}' | sort | head -1)
 [ -z "$PC_FIRST" ] && [ -f "$P/_devils_advocate.md" ] && PC_FIRST=$(date -u -r "$P/_devils_advocate.md" +%Y-%m-%dT%H:%M:%SZ)
 PC_LO=""; [ -n "$PC_FIRST" ] && PC_LO=$(date -u -d "@$(( $(date -u -d "$PC_FIRST" +%s) - 43200 ))" +%Y-%m-%dT%H:%M:%SZ)
 NB=$(cat "$T" 2>/dev/null | grep -c '"phase":"post-batch-hook","event":"start"')
@@ -83,12 +89,12 @@ echo "$EXPECTED" | while IFS='|' read -r n ph o; do
   if [ "$n" = pipeline-audit ]; then echo "| $n | $ph/$o | EVIDENCED (self) |" >> "$ROWS"; continue; fi
   if [ "$ph" = pre-plan ]; then
     hits=0; [ -n "$PC_FIRST" ] && hits=$(cat "$PPV" 2>/dev/null | awk -v n="$n" -v lo="$PC_LO" -v hi="$PC_FIRST" '$1=="-" && $3==n && $2>=lo && $2<=hi' | wc -l)
-    [ "$hits" -eq 0 ] && hits=$(cat "$V" 2>/dev/null | grep -cE "^\| *pre-plan/[0-9]+ *\| *$n *\|")
+    [ "$hits" -eq 0 ] && hits=$(cat "$VN" 2>/dev/null | grep -cE "^\| *pre-plan/[0-9]+ *\| *$n *\|")
   else
-    hits=$(cat "$V" 2>/dev/null | grep -cE "^- [^ ]+ $n [a-z-]+/[0-9]+:|^\| *[a-z-]+/[0-9]+ *\| *$n *\|")
+    hits=$(cat "$VN" 2>/dev/null | grep -cE "^- [^ ]+ $n [a-z-]+/[0-9]+:|^\| *[a-z-]+/[0-9]+ *\| *$n *\|")
   fi
   if [ "$hits" -gt 0 ]; then
-    if [ "$ph" = post-batch ] && [ "$NB" -gt 0 ] && [ "$hits" -lt "$NB" ] && cat "$V" | grep -qE "^- [^ ]+ $n "; then
+    if [ "$ph" = post-batch ] && [ "$NB" -gt 0 ] && [ "$hits" -lt "$NB" ] && cat "$VN" | grep -qE "^- [^ ]+ $n "; then
       echo "| $n | $ph/$o | PARTIAL ($hits/$NB batches) |" >> "$ROWS"
     else
       echo "| $n | $ph/$o | EVIDENCED (verdict line x$hits) |" >> "$ROWS"

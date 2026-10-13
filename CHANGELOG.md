@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`logs` playbook** (`templates/playbooks/logs.md`) — uat/prod server + app logs via the fleet `logs-uat`/`logs-prod` MCP servers (VictoriaLogs, read-only, tenant forced by token). Sits beside `bugsink`: Bugsink for the exception, logs for the traffic/log lines around it; replaces SSH log reads. Verified LogsQL recipes (status mix, 5xx, slow backend, Magento file+level, ±2m around a Bugsink event). Wire probe = token present + one 5m query; on both stacks (python allow-list extended). Magento fence also gains the missing `bugsink` pointer line. First installed by hand on pvcpipesupplies 2026-10-13.
+
 ## [0.6.0] — 2026-10-08
 
 ### Added — stack awareness (`python` | `magento`); Magento behaviour unchanged

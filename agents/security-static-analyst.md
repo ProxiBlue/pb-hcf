@@ -76,6 +76,16 @@ Hunt for:
 - **SSRF** — `curl`, `file_get_contents`, `Magento\Framework\HTTP\Client\Curl` with partially user-controlled URLs
 - **CSRF** — state-changing POST/PUT/DELETE endpoints without form_key / CSRF token
 
+**Drupal sinks** (stack = drupal):
+- **SQL** — string-built `\Drupal::database()->query("... $x")`, `->where()` / `->addExpression()` with concatenated input, `condition()` with input-controlled field/operator
+- **XSS** — Twig `|raw`, `#markup` / `Markup::create()` / `FormattableMarkup` with concatenated input, `!placeholder`, `#children`/`#suffix`/`#prefix` built from input, JS `innerHTML`/jQuery `.html()` on `drupalSettings` or AJAX payloads
+- **Access bypass** — routes with `_access: 'TRUE'`, entity queries with `->accessCheck(FALSE)`, `Entity::load($input)` without `->access()`, `AccessResult::allowed()` unconditional, controllers rendering entities without access checks
+- **CSRF** — state-changing GET routes without `_csrf_token`, raw POST handlers outside Form API
+- **Deserialisation / code exec** — `unserialize()` on input or cache/state values sourced from input (use `['allowed_classes' => false]`), `eval`, `call_user_func` / `$this->{$method}()` with input names, `php` filter / PHP text formats
+- **Files** — upload handlers bypassing File API validators, `file_save_data()` with input-built URIs, `public://` for access-controlled uploads, path traversal into `stream_wrapper` URIs
+- **Open redirect** — `RedirectResponse` / `TrustedRedirectResponse` / `?destination=` from input without `UrlHelper::isExternal()` check
+- **SSRF** — `http_client` with user-influenced URLs
+
 **Python / FastAPI sinks** (stack = python, or any `.py` in the audit target):
 - **OS command** — `subprocess.*(…, shell=True)`, `os.system`, `os.popen`, `subprocess` with a single string built from input, `asyncio.create_subprocess_shell`
 - **Deserialisation** — `pickle.load(s)`, `shelve`, `marshal.loads`, `yaml.load` without `Loader=yaml.SafeLoader` (use `yaml.safe_load`), `jsonpickle.decode`

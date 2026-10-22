@@ -58,7 +58,7 @@ If a prior incident in graphiti matches a finding here, that escalates the sever
 
 ### Step 4 — lint/modernization-diff judgment (deterministic layer's findings, judged here)
 
-**Pick by stack** (`jq -r '.stack // "magento"' .claude/wires.json`): `magento` → Step 4 (magento) below, unchanged. `python` → Step 4 (python), skip the rector step entirely.
+**Pick by stack** (`jq -r '.stack // "magento"' .claude/wires.json`): `magento` → Step 4 (magento) below, unchanged. `python` → Step 4 (python), skip the rector step entirely. `drupal` → Step 4 (magento) mechanics (`scripts/rector-check.sh` auto-scopes to `web/modules/custom` + `web/themes/custom` when there is no `app/code`), but judge Drupal wiring instead of Magento wiring: public signatures on classes referenced from `*.services.yml`, `*.routing.yml` (`_controller`/`_form`), plugin annotations/attributes, or `hook_*` implementations; dead-code removal on methods reached only via YAML service/route definitions, event subscribers, or hook discovery; constructor changes on classes built through `create(ContainerInterface)` / autowiring. No codegraph — use Grep over `*.yml` + `*.module` for callers.
 
 #### Step 4 (python) — ruff-diff judgment
 

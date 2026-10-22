@@ -30,14 +30,15 @@ Abort with a clear message if any fail:
 
    Do NOT touch `pipeline.md` from this skill. Migration is HCF's job; this skill only wires once the migration is done.
 
-## Stack selection (`--stack=python|magento`)
+## Stack selection (`--stack=python|magento|drupal`)
 
 Resolve the project stack ONCE, before playbook discovery. It decides which playbooks install, the fence text, and is recorded as `"stack"` in `.claude/wires.json` (agents read it to pick stack-specific behaviour).
 
-1. **`--stack=<python|magento>` flag** — explicit; use as-is. Any other value → abort with `unknown stack '<v>' (supported: python, magento)`.
+1. **`--stack=<python|magento|drupal>` flag** — explicit; use as-is. Any other value → abort with `unknown stack '<v>' (supported: python, magento, drupal)`.
 2. **Auto-detect** (no flag), from the project root:
    ```bash
    if [ -f composer.json ] && { [ -d app/etc ] || [ -e bin/magento ]; }; then STACK=magento
+   elif [ -f composer.json ] && { [ -f web/core/lib/Drupal.php ] || [ -f core/lib/Drupal.php ] || grep -q '"drupal/core' composer.json; }; then STACK=drupal
    elif { [ -f pyproject.toml ] || [ -f requirements.txt ]; } && [ ! -f composer.json ]; then STACK=python
    else STACK=magento; fi   # fallback preserves pre-0.6.0 behaviour
    ```
@@ -47,12 +48,13 @@ Resolve the project stack ONCE, before playbook discovery. It decides which play
 |---|---|---|
 | `magento` | every `templates/playbooks/*.md` (bricklayer probe-gated — unchanged pre-0.6.0 behaviour) | none |
 | `python` | `graphiti`, `security`, `bugsink`, `logs`, `prod-shape` (if the template exists), plus the constitution (step 1a) | `codegraph`, `xhgui`, `visual`, `bricklayer` — and any future playbook not on the python allow-list |
+| `drupal` | same allow-list as `python` (`graphiti`, `security`, `bugsink`, `logs`, `prod-shape`), plus the constitution (step 1a) | `codegraph` (Magento DI/plugin graph), `xhgui` (needs the xhgui store — add to the list by hand once a Drupal project has one), `visual` (m2-hyva-playwright baselines), `bricklayer` |
 
-The python allow-list is explicit (`graphiti security bugsink logs prod-shape`): a new playbook template added later is Magento-only until someone adds it to this list. Skipped playbooks are not probed — so `pre-flight-check` (which only probes rows present in `wires.json`) never BLOCKs a python project on codegraph.
+The python allow-list is explicit (`graphiti security bugsink logs prod-shape`; `drupal` reuses it): a new playbook template added later is Magento-only until someone adds it to this list. Skipped playbooks are not probed — so `pre-flight-check` (which only probes rows present in `wires.json`) never BLOCKs a python project on codegraph.
 
 ## Playbook discovery
 
-Enumerate all `*.md` files under `$CLAUDE_PLUGIN_ROOT/templates/playbooks/`, then filter by stack (see "Stack selection"): `magento` keeps all; `python` keeps only the python allow-list. Each remaining file becomes one wire entry. The basename (sans `.md`) is the playbook name (e.g. `codegraph.md` → `codegraph`).
+Enumerate all `*.md` files under `$CLAUDE_PLUGIN_ROOT/templates/playbooks/`, then filter by stack (see "Stack selection"): `magento` keeps all; `python` and `drupal` keep only the python allow-list. Each remaining file becomes one wire entry. The basename (sans `.md`) is the playbook name (e.g. `codegraph.md` → `codegraph`).
 
 For each playbook, read its first heading (`# <Title>`) — used in the CLAUDE.md fenced section pointers.
 
@@ -151,6 +153,27 @@ Each playbook declares its **Authority scope** at the top — defer to the named
 
 No code-graph line, no xhgui line, no `rector.php` pointer, no "Magento wiring" wording on python.
 
+**`drupal` stack:**
+
+```markdown
+<!-- pb-hcf:start -->
+## Per-domain Playbooks (pb-hcf wires)
+
+For domain-specific tooling and per-agent playbooks, consult the relevant file:
+
+- **Knowledge graph** (discussions, decisions, planned features, prior incidents) → `@.claude/graphiti.md`
+- **Security audit** (OWASP, vulnerability assessment, Drupal access/route/render controls) → `@.claude/security.md`
+- **Runtime errors** (what's actually breaking — Bugsink) → `@.claude/bugsink.md`
+- **Server/app logs** (uat/prod — `logs-uat`/`logs-prod` MCP; Bugsink first, then this) → `@.claude/logs.md`
+- **Production data scale** → `@.claude/prod-shape.md`
+- **PHP modernization convention** (rector + palantirnet/drupal-rector, if `rector.php` exists — generation-time context, not a playbook) → `@rector.php`
+
+Each playbook declares its **Authority scope** at the top — defer to the named playbook when a question falls in its scope; cross-cite when a question spans two.
+<!-- pb-hcf:end -->
+```
+
+No code-graph line, no xhgui line, no "Magento wiring" wording on drupal. Omit the `rector.php` line when the project has no `rector.php`.
+
 Only emit pointer lines for playbooks that actually got installed in step 1. Re-runs replace the entire fenced section (not duplicate, not split).
 
 ### 3. Detect + replace the legacy wire fence (migration)
@@ -202,7 +225,7 @@ Detection order:
 
 In all three, the path must be **writable from host**. If not, abort with a clear message naming the path and the chown command to fix it.
 
-**Stack guard on enrollment.** When the resolved stack is `python` and the enable set contains `codegraph-reviewer` (directly or via `--enable-all`), still enroll it if asked but **warn**: `codegraph-reviewer enrolled on a python project — no codegraph playbook is wired, it will report SKIPPED every run`. `--enable-all` keeps its literal meaning (all 20) on every stack; the python recipe below (Recommended enrollment sets) is the recommended set.
+**Stack guard on enrollment.** When the resolved stack is `python` or `drupal` and the enable set contains `codegraph-reviewer` (directly or via `--enable-all`), still enroll it if asked but **warn**: `codegraph-reviewer enrolled on a <stack> project — no codegraph playbook is wired, it will report SKIPPED every run`. `--enable-all` keeps its literal meaning (all 20) on every stack; the python / drupal recipes below (Recommended enrollment sets) are the recommended sets.
 
 **To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example:
 - `/pb-hcf:wire --enable=pre-flight-check,codegraph-reviewer,security-quorum` — minimal sane set
@@ -238,6 +261,7 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
 | Magento project, no auto-test-plan posting | `--enable-all` then `rm $TARGET/post-plan-manual-test-plan.md` |
 | Non-Magento project, graphiti recall only | `--enable=pre-plan-graphiti-recall,graphiti-reviewer,pre-implementation-incident-recall` |
 | Python project (FastAPI etc.), full workflow minus codegraph/Magento-only agents | `--stack=python --enable=pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-dag-check,post-plan-manual-test-plan,pre-implementation-incident-recall,issue-sentinel,simplify-pass,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,post-commit-build-timing,pipeline-audit` (add `post-plan-playwright-bucket-split,pre-batch-playwright-floor-guard,post-batch-playwright-churn` when the project has a Playwright e2e suite) |
+| Drupal project, full workflow minus codegraph/Magento-only agents | `--stack=drupal` + the same 16-agent `--enable=` set as the python row (add the 3 Playwright agents when the project has a Playwright e2e suite — declare `e2e_spec_dir:` in `.claude/testing.md`) |
 | Security-focused only | `--enable=pre-flight-check,security-quorum,pre-commit-adversarial-pass` |
 | Minimal (just structural review) | `--enable=codegraph-reviewer` |
 | Verification spine only (plan-quality + test-quality + runtime-error + pipeline-proof, no test-plan posting) | `--enable=pre-mortem,mutation-tester,issue-sentinel,pipeline-audit` |
@@ -297,7 +321,7 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
 }
 ```
 
-`stack` is `"magento"` or `"python"` (see "Stack selection"). Agents treat a missing key as `"magento"` (pre-0.6.0 registries). On a python wire `playbooks[]` never contains `codegraph`, `xhgui`, `visual` or `bricklayer` rows. Optional project-declared keys that wire preserves across re-runs if already present (never invents them): `"log_paths": [...]` (read by `issue-sentinel`).
+`stack` is `"magento"`, `"python"` or `"drupal"` (see "Stack selection"). Agents treat a missing key as `"magento"` (pre-0.6.0 registries). On a python or drupal wire `playbooks[]` never contains `codegraph`, `xhgui`, `visual` or `bricklayer` rows. Optional project-declared keys that wire preserves across re-runs if already present (never invents them): `"log_paths": [...]` (read by `issue-sentinel`).
 
 `enrollmentTarget` is the resolved host-side path agents land in. `enrollmentTargetSource` is one of `"flag"` (`--target` passed), `"ddev-mount"` (detected from docker-compose), or `"project-local"` (fallback to `.claude/agents/`).
 
@@ -315,7 +339,7 @@ List each created / modified / removed file with a one-line summary. Include rea
 - For overwritten playbook files, show the diff and confirm unless `--no-overwrite` is passed.
 - For enrollment files (`$TARGET/<name>.md`): re-running `--enable=<name>` on an already-enrolled agent at the same `phase` is a no-op (silent skip) unless `--refresh` is passed (body re-copied, existing stamp kept); on a different `phase` it warns and refuses to overwrite (with or without `--refresh`).
 - Flags:
-  - `--stack=<python|magento>` → override stack auto-detection (see "Stack selection"). Recorded in `wires.json`; a re-run without the flag re-detects, so pass it again (or rely on detection) to keep a non-default stack.
+  - `--stack=<python|magento|drupal>` → override stack auto-detection (see "Stack selection"). Recorded in `wires.json`; a re-run without the flag re-detects, so pass it again (or rely on detection) to keep a non-default stack.
   - `--reprobe` → re-run only the reachability probes, update `wires.json`, don't touch playbook files, CLAUDE.md, or the enrollment target.
   - `--no-overwrite` → skip diff prompts; leave existing playbook files untouched if they differ.
   - `--migrate-only` → only run the legacy wire-fence migration step (step 3), don't install or probe anything.

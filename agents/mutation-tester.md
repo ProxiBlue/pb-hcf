@@ -31,11 +31,11 @@ else RUNNER=none; fi
 
 | Key | Meaning | Default |
 |---|---|---|
-| `mutation_paths` | comma-separated globs of source files eligible for mutation | infection: `app/code/**/*.php`; mutmut: `src/**/*.py` if `src/` exists, else `**/*.py` minus the mutmut excludes |
+| `mutation_paths` | comma-separated globs of source files eligible for mutation | infection: `app/code/**/*.php` (drupal stack: `web/modules/custom/**/*.php`, `web/modules/custom/**/*.module`); mutmut: `src/**/*.py` if `src/` exists, else `**/*.py` minus the mutmut excludes |
 | `mutation_min_msi` | floor for MSI / kill rate (%) | `60` |
 | `mutation_min_covered_msi` | floor for covered MSI / covered kill rate (%) | `75` |
 
-For the Infection path the thresholds stay owned by the project's `infection.json5` + the `--min-msi=60 --min-covered-msi=75` flags below; `mutation_min_*` only applies to mutmut (Infection projects keep their existing behaviour). `mutation_paths`, if declared, replaces the `'app/code/**/*.php'` pathspec in Steps 1 and 3 — no Magento project declares it today, so the default is unchanged. A project may raise floors; never silently lower them below the defaults without the declaration being in `testing.md`.
+For the Infection path the thresholds stay owned by the project's `infection.json5` + the `--min-msi=60 --min-covered-msi=75` flags below; `mutation_min_*` only applies to mutmut (Infection projects keep their existing behaviour). `mutation_paths`, if declared, replaces the `'app/code/**/*.php'` pathspec in Steps 1 and 3 — no Magento project declares it today, so the default is unchanged. On `"stack": "drupal"` (or no `app/code/` but a `web/modules/custom/`), use the drupal default pathspec above in place of `'app/code/**/*.php'` when `mutation_paths` is not declared. A project may raise floors; never silently lower them below the defaults without the declaration being in `testing.md`.
 
 ### Step 1 — Scope: changed app/code PHP files only
 

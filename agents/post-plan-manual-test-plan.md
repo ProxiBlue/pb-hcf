@@ -62,7 +62,7 @@ For each YAML story where ALL of the following hold:
 - `spec_file` points to a Playwright spec under the project's e2e spec dir, AND
 - The story was derived from a specific task file's "Requirements (Test Descriptions)" section (i.e. you can map the story back to a `.claude/plans/<plan-name>/NNN-*.md` file)
 
-**E2E spec dir** (resolve once): the `e2e_spec_dir: <path>` line in `.claude/testing.md` if declared; else by stack (`jq -r '.stack // "magento"' .claude/wires.json`): `magento` → `tests/m2-hyva-playwright/src/apps/<X>/tests/` (unchanged default); `python` → `tests/e2e/`.
+**E2E spec dir** (resolve once): the `e2e_spec_dir: <path>` line in `.claude/testing.md` if declared; else by stack (`jq -r '.stack // "magento"' .claude/wires.json`): `magento` → `tests/m2-hyva-playwright/src/apps/<X>/tests/` (unchanged default); `python` → `tests/e2e/`; `drupal` → `tests/`.
 
 Locate that source task file and APPEND (do not replace any existing content) a block at the bottom:
 

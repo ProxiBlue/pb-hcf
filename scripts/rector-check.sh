@@ -44,12 +44,24 @@ if [[ ! -f "$RECTOR_CONFIG" ]]; then
   exit 0
 fi
 
-mapfile -t CHANGED_FILES < <(git diff --name-only "$REF" -- 'app/code/**/*.php' \
+# Custom-code pathspec: Magento app/code by default; Drupal projects (no app/code,
+# but web/modules/custom) scope to custom modules + themes. RECTOR_PATHSPEC
+# (space-separated) overrides both.
+if [[ -n "${RECTOR_PATHSPEC:-}" ]]; then
+  read -r -a PATHSPEC <<< "$RECTOR_PATHSPEC"
+elif [[ ! -d app/code && -d web/modules/custom ]]; then
+  PATHSPEC=('web/modules/custom/**/*.php' 'web/modules/custom/**/*.module' 'web/modules/custom/**/*.inc'
+            'web/modules/custom/**/*.install' 'web/themes/custom/**/*.php' 'web/themes/custom/**/*.theme')
+else
+  PATHSPEC=('app/code/**/*.php')
+fi
+
+mapfile -t CHANGED_FILES < <(git diff --name-only "$REF" -- "${PATHSPEC[@]}" \
   | grep -v '/generated/' \
   | grep -v '/Test/[^/]*/_files/')
 
 if [[ "${#CHANGED_FILES[@]}" -eq 0 ]]; then
-  echo "rector-check: no changed app/code/**/*.php files in scope (excluding generated/ and test fixtures) — nothing to check."
+  echo "rector-check: no changed ${PATHSPEC[*]} files in scope (excluding generated/ and test fixtures) — nothing to check."
   exit 0
 fi
 

@@ -29,6 +29,8 @@ Resolve once: `jq -r '.stack // "magento"' .claude/wires.json` (absent file/key 
 | Fast bucket runner | `node --test` on extracted JS module | `pytest` — pure functions directly; HTTP behaviour via `httpx.AsyncClient(transport=httpx.ASGITransport(app=app))` (no browser, no server); `node --test` still applies to extracted static JS |
 | Playwright spec dir | `tests/m2-hyva-playwright/...` | `e2e_spec_dir` from `.claude/testing.md`, else `tests/e2e/` |
 
+**drupal**: Rule-2 files = Twig templates (`*.html.twig`), theme/module `js/**` + `css/**`/SCSS, `*.libraries.yml`, Form API `buildForm()` render arrays, Views config (`config/sync/views.view.*.yml`), block/layout config. Fast bucket = PHPUnit Unit/Kernel tests (`web/modules/custom/*/tests/src/{Unit,Kernel}`) for PHP logic; `node --test` for extracted JS. Playwright spec dir = `e2e_spec_dir` from `.claude/testing.md`, else `tests/`.
+
 ## Process
 
 ### Step 0 — Idempotency check (per file)

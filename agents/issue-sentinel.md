@@ -142,6 +142,15 @@ grep -E '(Traceback \(most recent call last\)|ERROR|CRITICAL|Exception)' .ddev/u
 
    For Python, report matching `Traceback` blocks with their last frame (`File "…", line N`) as the suspected file:line.
 
+   - **drupal** — watchdog (dblog) since the batch start, plus the PHP error log:
+
+```bash
+vendor/bin/drush watchdog:show --severity=Error --count=50 --format=tsv 2>/dev/null
+vendor/bin/drush watchdog:show --type=php --count=50 --format=tsv 2>/dev/null
+```
+
+   Keep only rows timestamped after the batch start. Report the `message` (it carries `in <file> (line N)` for PHP errors) as the suspected file:line. If `dblog` is disabled (`drush pm:list --status=enabled | grep -q dblog` fails), say so and fall back to `syslog`/PHP error log paths declared in `log_paths`.
+
 This is intentionally thin — new files in `var/report/` since the marker, plus the last N lines
 of cron log matching stderr-shaped patterns. It is NOT full log tailing; Bugsink owns that job
 when reachable. When Bugsink WAS reachable (Step 3 passed), treat this as a secondary

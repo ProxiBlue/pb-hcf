@@ -42,7 +42,7 @@ pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/regi
 
 Skip this probe when `.claude/wires.json` has no `codegraph` playbook row (e.g. `"stack": "python"` wires) — then every `mcp__pb-codegraph__impact` verification below falls back to `Grep` + `Read` of the call chain (cite the grep and the call sites read).
 
-**Pick the control catalogue by stack.** `jq -r '.stack // empty' .claude/wires.json`; if absent, detect from manifests: `composer.json` + (`app/etc/` or `bin/magento`) → `magento`; `pyproject.toml` or `requirements.txt` without `composer.json` → `python`; else `magento`. `magento` → walk the Magento sections in Step 2. `python` → walk **"Python / FastAPI controls"** instead. A mixed repo (e.g. a Python service inside a Magento project) → walk both, per file language.
+**Pick the control catalogue by stack.** `jq -r '.stack // empty' .claude/wires.json`; if absent, detect from manifests: `composer.json` + (`app/etc/` or `bin/magento`) → `magento`; `composer.json` + (`web/core/lib/Drupal.php` or `core/lib/Drupal.php`) → `drupal`; `pyproject.toml` or `requirements.txt` without `composer.json` → `python`; else `magento`. `magento` → walk the Magento sections in Step 2. `python` → walk **"Python / FastAPI controls"** instead. `drupal` → walk **"Drupal controls"** instead. A mixed repo (e.g. a Python service inside a Magento project) → walk both, per file language.
 
 ## Step 2 — enumerate the controls in scope
 
@@ -86,6 +86,42 @@ For the audit target's domain, list the framework-provided + project-provided de
 - URL allowlist for outbound calls (no wildcard hostnames)
 - Curl client uses `Magento\Framework\HTTP\Client\Curl` with `setOption(CURLOPT_FOLLOWLOCATION, false)` if not needed
 - Webhook signatures HMAC-verified with `hash_equals` (constant-time comparison)
+
+### Drupal controls (stack = drupal)
+
+**Routing / access control (A01):**
+- Every route in `*.routing.yml` touched by the change has a `requirements:` access check (`_permission`, `_role`, `_entity_access`, `_custom_access`, `_csrf_token`); `_access: 'TRUE'` on a non-public route is a finding.
+- `_custom_access` callbacks / `AccessInterface` services return `AccessResult` with correct cacheability (`->cachePerUser()`, `->addCacheableDependency()`); no `AccessResult::allowed()` without a condition.
+- Entity queries built in custom code call `->accessCheck(TRUE)` (Drupal 10+ requires an explicit choice — `FALSE` needs a stated reason); `Entity::load($id)` from route/query input is followed by `->access('view'|'update', $account)` before use (IDOR).
+- Node/entity access grants (`hook_node_access`, `hook_node_grants`) still deny by default for the new bundle/field.
+
+**CSRF (A01):**
+- State-changing GET routes carry `_csrf_token: 'TRUE'` (links generated through `Url`/`Link` so the token is appended); forms use the Form API (form token auto-added) — hand-rolled `<form>` POST handlers bypassing Form API are a finding.
+
+**Output / XSS (A03):**
+- Twig autoescape intact — flag `|raw` on anything user-derived; render arrays use `#plain_text` or `#markup` passed through `Xss::filterAdmin()`/`Xss::filter()`; `Markup::create()` / `FormattableMarkup` with `:variable` (URL) or `@variable` placeholders, never `!`/concatenation of input.
+- `t()` / `TranslatableMarkup` placeholders: `@` (escaped) or `%` (escaped+emphasised); `{{ var|t }}` not used on user data.
+- JS: `Drupal.checkPlain()` / text nodes, not `innerHTML`/`.html()` with server or user strings; `drupalSettings` values treated as untrusted in sinks.
+
+**Database (A03 injection):**
+- `\Drupal::database()` / injected `Connection` with placeholders (`:name`) or the query builder; `->condition()` field names never from input; `db_query()`-style string concatenation is a finding. `LIKE` input passed through `$connection->escapeLike()`.
+
+**Files / uploads:**
+- `managed_file` / file fields declare `file_validate_extensions` (D10: `FileExtension` constraint) and size limits; uploads land in `private://` when access-controlled; filenames via `FileSystemInterface::createFilename()` / transliteration; no `move_uploaded_file()` outside the File API.
+
+**Config / secrets (A02/A05):**
+- Secrets (API keys, SMTP creds) live in `settings.php` / env (`getenv()`) or Key module — never in exported `config/sync/*.yml` (grep the diff for `password|secret|api_key|token` under `config/`).
+- `$settings['trusted_host_patterns']` set; `update_free_access = FALSE`; error display off in prod (`system.logging:error_level: hide`).
+- Permissions in `*.permissions.yml` for privileged actions use `restrict access: true`.
+
+**Auth / sessions (A07):**
+- Custom login/reset flows go through `user.auth` / `UserAuthInterface` + flood control (`flood` service); no custom password hashing (use `password` service).
+
+**Outbound HTTP (A10 SSRF):**
+- `http_client` (Guzzle) calls with user-influenced URLs validate scheme + host allowlist; timeouts set; `allow_redirects` off unless needed.
+
+**Dependencies:**
+- `composer audit` clean for `drupal/*` (Drupal security advisories ship as composer advisories); core/contrib on a supported minor.
 
 ### Python / FastAPI controls (stack = python)
 

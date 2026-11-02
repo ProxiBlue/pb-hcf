@@ -1,7 +1,6 @@
 ---
 name: interview
 description: Pre-plan scope builder that interviews the user one question at a time to flesh out scope before a build starts. Trigger naturally on vague build asks such as "flesh out scope", "help me spec", "not sure what I want", "spec this out", or "what should I build" — no explicit invocation required. Scores the emerging spec on a 4-dimension clarity scorecard and refuses handoff to plan-create below threshold.
-model: sonnet
 ---
 
 # /pb-hcf:interview

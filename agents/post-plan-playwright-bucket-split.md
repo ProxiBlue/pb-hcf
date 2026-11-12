@@ -31,6 +31,8 @@ Resolve once: `jq -r '.stack // "magento"' .claude/wires.json` (absent file/key 
 
 **drupal**: Rule-2 files = Twig templates (`*.html.twig`), theme/module `js/**` + `css/**`/SCSS, `*.libraries.yml`, Form API `buildForm()` render arrays, Views config (`config/sync/views.view.*.yml`), block/layout config. Fast bucket = PHPUnit Unit/Kernel tests (`web/modules/custom/*/tests/src/{Unit,Kernel}`) for PHP logic; `node --test` for extracted JS. Playwright spec dir = `e2e_spec_dir` from `.claude/testing.md`, else `tests/`.
 
+**node**: Rule-2 files = components (`*.tsx`/`*.jsx`/`*.vue`/`*.svelte`), CSS/SCSS/Tailwind config, client routes/pages, server-rendered HTML/template routes. Fast bucket = the project's unit runner (vitest or jest, from `package.json`) — pure logic directly, components via Testing Library + jsdom/happy-dom, HTTP handlers in-process (Fastify `app.inject()`, Hono `app.request()`, supertest for Express) — no browser, no server; same JS-unit heading, parenthetical `(fast, vitest/jest — no browser)`. Playwright spec dir = `e2e_spec_dir` from `.claude/testing.md`, else `testDir` from `playwright.config.*`, else `e2e/`.
+
 ## Process
 
 ### Step 0 — Idempotency check (per file)
@@ -39,7 +41,7 @@ Before touching a task file, check whether it already has BOTH a `## Requirement
 
 ### Step 1 — Determine Rule 2 applicability per task
 
-For each task file that still has the flat `## Requirements (Test Descriptions)` heading, read its Description + Context. Rule 2 applies if the task touches any of the stack's Rule-2 files (see Stack table — magento: `.phtml`, `layout/*.xml`, theme, frontend JS/CSS/LESS, Hyvä components; python: templates, static assets, HTML-returning routes) — per `testing.md` Rule 2 when it defines one (read it, don't paraphrase from memory); `testing.md` wins over the table.
+For each task file that still has the flat `## Requirements (Test Descriptions)` heading, read its Description + Context. Rule 2 applies if the task touches any of the stack's Rule-2 files (see Stack table — magento: `.phtml`, `layout/*.xml`, theme, frontend JS/CSS/LESS, Hyvä components; python: templates, static assets, HTML-returning routes; drupal/node: see the paragraphs under the table) — per `testing.md` Rule 2 when it defines one (read it, don't paraphrase from memory); `testing.md` wins over the table.
 
 - **Rule 2 does not apply** (backend-only, Rule 3) → leave the task file's Requirements section untouched. Do not force a split on backend-only tasks; there is nothing to bucket.
 - **Rule 2 applies** → proceed to Step 2.
@@ -54,7 +56,7 @@ If floor-domain and no `**Domain**:` line exists yet, infer the specific value (
 
 ### Step 3 — Classify each existing requirement bullet
 
-For each `- [ ]` item under the current flat Requirements section, decide: does proving this specific behavior genuinely require a real browser (real DOM computed styles/layout, real network timing, real Stripe iframe boundary, real Loki AJAX morph cycle / HTMX swap, real admin/customer session state in a browser)? If NO to all of those — JS-unit (fast) bucket. On the python stack, "needs an HTTP request" is NOT "needs a browser" — status codes, redirects, JSON/HTML bodies, cookies and auth dependencies are provable with pytest + `httpx.ASGITransport`. If YES to any — Playwright bucket.
+For each `- [ ]` item under the current flat Requirements section, decide: does proving this specific behavior genuinely require a real browser (real DOM computed styles/layout, real network timing, real Stripe iframe boundary, real Loki AJAX morph cycle / HTMX swap, real admin/customer session state in a browser)? If NO to all of those — JS-unit (fast) bucket. On the python stack, "needs an HTTP request" is NOT "needs a browser" — status codes, redirects, JSON/HTML bodies, cookies and auth dependencies are provable with pytest + `httpx.ASGITransport` (node: `app.inject()` / `app.request()` / supertest in vitest/jest). If YES to any — Playwright bucket.
 
 When in doubt, prefer JS-unit — that is the whole point of the discipline this agent enforces. Do not move an item to Playwright just because it "feels UI-related"; the test is whether the ASSERTION itself needs the browser, not whether the code under test happens to run in the browser.
 

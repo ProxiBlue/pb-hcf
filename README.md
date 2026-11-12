@@ -105,6 +105,25 @@ What changes vs Magento:
 | Protected branches | Declare in `.claude/constitution.md` (`protected_branches: main, production`) — `pre-flight-check` uses it instead of the default list. |
 | E2E | Spec dir from `e2e_spec_dir:` in `.claude/testing.md`, else `tests/e2e/`; fast bucket = pytest + `httpx.ASGITransport`. |
 
+## Node / TypeScript projects
+
+On a Node/TS project (Fastify, Express, Hono, React/Vite …) run the same 16-agent set with `--stack=node`:
+
+```
+/pb-hcf:wire --stack=node --enable=pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-dag-check,post-plan-manual-test-plan,pre-implementation-incident-recall,issue-sentinel,simplify-pass,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,post-commit-build-timing,pipeline-audit
+```
+
+(Auto-detected when `package.json` exists with no `composer.json` / `pyproject.toml` / `requirements.txt` — checked after magento, drupal and python, since Magento/Hyvä and Drupal repos carry a `package.json` too. Add the 3 Playwright agents if the project has a Playwright e2e suite.)
+
+| Area | Node behaviour |
+|---|---|
+| Playbooks | Same allow-list as python (`graphiti`, `security`, `bugsink`, `logs`, `prod-shape`) + constitution. Fence points at `@tsconfig.json` for the type-check/lint convention. |
+| Mutation testing | Stryker (`node_modules/.bin/stryker`, vitest/jest runner from the project's Stryker config) on changed `src`/`lib` TS/JS; not installed → PASS-with-note + install hint. Same `.claude/testing.md` floors/paths keys. |
+| Security | Defensive auditor walks "Node / TypeScript controls"; static analyst adds Node sinks (query-builder raw SQL, `child_process`, `fs`, `fetch` SSRF, `dangerouslySetInnerHTML`, `VITE_*` secrets, LLM prompt injection); `pnpm`/`npm`/`yarn audit` by lockfile. |
+| Lint / type-check | `pre-commit-adversarial-pass` runs `tsc --noEmit` + biome or eslint (whichever is installed) on staged files via the lockfile's package manager, judges behaviour-changing findings. `/pb-hcf:modernization-sweep` refuses. |
+| Runtime errors | `issue-sentinel` log fallback: `log_paths` if declared, else `logs/*.log` + `.ddev/*.log` (pino error/fatal, `Unhandled…`). |
+| E2E | Spec dir from `e2e_spec_dir:`, else `playwright.config.*` `testDir`, else `e2e/`; fast bucket = vitest/jest (Testing Library, `app.inject()` / `app.request()` / supertest). |
+
 ## Authority scope model
 
 Each playbook declares — at the top, as a fixed section — what it is the source of truth for and what it explicitly defers to siblings. This avoids contradictory guidance when multiple playbooks are wired together. When adding a new playbook, copy the existing `## Authority scope` skeleton and fill in the matching defer-to lines.
@@ -412,7 +431,7 @@ These are real trade-offs the design accepts. Revisit when they bite in practice
 
 ### When NOT to use pb-hcf wires
 
-- **Non-Magento, non-Python project with no graphiti corpus.** `/hcf:plan-orchestrate` direct is fine. (Python projects: see "Python projects" above.)
+- **Non-Magento, non-Python project with no graphiti corpus.** `/hcf:plan-orchestrate` direct is fine. (Python projects: see "Python projects" above; Node/TS: "Node / TypeScript projects".)
 - **Quick spike / throwaway code.** Wiring adds discipline that costs ~$0.30-1.00 per plan; not worth it for a 10-line experiment.
 - **Pre-release security sign-off.** Use a heavier full-OWASP quorum (e.g. `/agent-teams team_security` from the proxiblue-skills central catalogue) — `security-quorum` is the per-plan gate, not the release-readiness audit.
 
@@ -582,5 +601,6 @@ Or trust the printed resolved-order line HCF logs at each hook firing.
 | v0.5.0 | **Verification spine — 4 new enrollable agents, a new `post-batch` hook point, plan-quality + test-quality + runtime-error + pipeline-proof coverage.** Ships `pre-mortem` (post-plan, order 20 — prospective failure analysis, assumes the plan failed and works backwards to causes, distinct lens from devils-advocate), `mutation-tester` (post-implementation, order 45 — Infection mutation testing on changed PHP files, PASS/PUSHBACK on min-MSI + surviving mutants, tests-that-test-the-tests), `issue-sentinel` (**new `post-batch` hook point**, order 30 — queries central Bugsink for issues since batch start, triages via bricklayer `diagnose-error`, thin-log fallback), `pipeline-audit` (post-commit, order 90 — proves which enrolled phases actually fired this run vs silently skipped, mechanizing the hcf-build-integration-gaps lesson). Wire's enrollable-agent table grows to **14 agents at 7 hook points**; `--enable-all` enrolls all 14. Also ships: bricklayer playbook template (probe-gated install, runtime-resolved-truth authority, codegraph cross-reference for resolution-disagreement arbitration) + wire's bricklayer probe; project constitution template (`templates/constitution.md`, install-without-overwrite by wire, injected into every plan dir as `_constitution.md` by `pre-implementation-incident-recall`, checked — WARN only — by `pre-flight-check`); `/pb-hcf:interview` skill (clarity-scored pre-plan scope builder, Harper Reed one-question-at-a-time pattern, 16/20 threshold gate); central Bugsink wire probe (200-or-401-is-reachable, DSN-presence check) + `docs/release-tagging.md` (`HCF_RELEASE=<plan-name>#<batch-n>` convention) + `templates/sentry/README.md` (`justbetter/magento2-sentry` per-project install); `templates/rector/` (PHP 8.3 modernization ruleset + Magento-plugin-safety skip list) + `scripts/rector-check.sh` (deterministic changed-files dry-run gate, non-zero exit on proposed transforms) + `pre-commit-adversarial-pass` extended with a rector-diff judgment step (contested transforms near plugin/observer/DI wiring get file:line risk citations); `/pb-hcf:modernization-sweep` skill (apply-mode rector for existing code, one module × one ruleset per bounded ralph-loop-friendly run, own branch, never self-merges); `templates/otel/otel.env.dist` + `services/otel/README.md` (Claude Code OTLP telemetry client env + collector-options doc — docs/env only, no collector implementation yet). |
 
 | v0.6.0 | **Stack-aware (`--stack=python\|magento`).** Wire auto-detects the stack, records it in `wires.json`, installs only graphiti/security/bugsink/prod-shape on python (no codegraph/xhgui/visual/bricklayer rows), python fence + recipe. Agents branch on stack: mutmut runner in `mutation-tester`, Cobertura in `codegraph-reviewer`, FastAPI controls/sinks in the security trio, ruff-diff in `pre-commit-adversarial-pass` (+ `scripts/ruff-check.sh`), constitution-declared protected branches in `pre-flight-check`, declarable log/spec paths. New `templates/sentry-python/`, `templates/mutmut/`. Magento behaviour unchanged. |
+| Unreleased | **`drupal` + `node` stacks** (`--stack=python\|magento\|drupal\|node`), `logs` playbook — see `CHANGELOG.md` `[Unreleased]`. |
 
 Next planned playbook: `playwright.md` — folds in E2E test design and coverage guidance.

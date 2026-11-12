@@ -42,7 +42,7 @@ pb-codegraph health --registry "${PB_CODEGRAPH_REGISTRY:-.ddev/pb-codegraph/regi
 
 Skip this probe when `.claude/wires.json` has no `codegraph` playbook row (e.g. `"stack": "python"` wires) — then every `mcp__pb-codegraph__impact` verification below falls back to `Grep` + `Read` of the call chain (cite the grep and the call sites read).
 
-**Pick the control catalogue by stack.** `jq -r '.stack // empty' .claude/wires.json`; if absent, detect from manifests: `composer.json` + (`app/etc/` or `bin/magento`) → `magento`; `composer.json` + (`web/core/lib/Drupal.php` or `core/lib/Drupal.php`) → `drupal`; `pyproject.toml` or `requirements.txt` without `composer.json` → `python`; else `magento`. `magento` → walk the Magento sections in Step 2. `python` → walk **"Python / FastAPI controls"** instead. `drupal` → walk **"Drupal controls"** instead. A mixed repo (e.g. a Python service inside a Magento project) → walk both, per file language.
+**Pick the control catalogue by stack.** `jq -r '.stack // empty' .claude/wires.json`; if absent, detect from manifests: `composer.json` + (`app/etc/` or `bin/magento`) → `magento`; `composer.json` + (`web/core/lib/Drupal.php` or `core/lib/Drupal.php`) → `drupal`; `pyproject.toml` or `requirements.txt` without `composer.json` → `python`; `package.json` without any of `composer.json` / `pyproject.toml` / `requirements.txt` → `node`; else `magento`. `magento` → walk the Magento sections in Step 2. `python` → walk **"Python / FastAPI controls"** instead. `drupal` → walk **"Drupal controls"** instead. `node` → walk **"Node / TypeScript controls"** instead. A mixed repo (e.g. a Python service inside a Magento project) → walk both, per file language.
 
 ## Step 2 — enumerate the controls in scope
 
@@ -161,6 +161,46 @@ For the audit target's domain, list the framework-provided + project-provided de
 
 **Webhooks:**
 - Stripe: `stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)` on the **raw** request body (`await request.body()`), tolerance left at default; Pin Payments / other HMAC webhooks verified with `hmac.compare_digest` over the raw body before any JSON parse or side effect. Idempotency on event id.
+
+### Node / TypeScript controls (stack = node)
+
+**Routing / access control (A01):**
+- Every route in the change (Fastify `fastify.<verb>`/`route()`, Express `router.<verb>`, Hono `app.<verb>`, tRPC procedures) sits behind auth — a scoped hook (`onRequest`/`preHandler`), `app.use(requireAuth)` registered BEFORE the routes, Hono middleware, `protectedProcedure` — or has a stated reason to be public. Fastify encapsulation: a hook inside one `register()` scope does not cover sibling plugins.
+- Object-level authz: resource owner compared to the session user (no IDOR via `:id` params).
+
+**Input validation (A03/A04):**
+- Every handler validates body/query/params with a schema (Fastify JSON schema / TypeBox, Zod/Valibot validators) and passes the *parsed* value onward — no raw `req.body` into the ORM; unknown keys stripped (`additionalProperties: false` / `.strict()`). Body/upload size limits set.
+
+**CSRF — cookie-session only:** state-changing cookie-authenticated routes verify a token (`@fastify/csrf-protection`, `csrf-csrf`) or rely on `SameSite=Strict` + Origin check — state which. Bearer-token APIs exempt.
+
+**Crypto / secrets (A02):**
+- argon2 (`argon2`, `@node-rs/argon2`) or bcrypt for passwords; `crypto.timingSafeEqual` for token/HMAC compares; tokens from `crypto.randomBytes` / `randomUUID`.
+- Cookies `httpOnly`, `secure`, `sameSite`; secrets from env validated at boot, never logged (pino `redact` covers `authorization`, cookies, password fields).
+- **Client bundle**: no secret in `VITE_*` / `NEXT_PUBLIC_*` / `PUBLIC_*` vars or Vite `define`; server-only modules not imported by client code; grep a built `dist/` for secret names if one exists.
+
+**CORS / headers (A05):**
+- CORS origin is an explicit list — `origin: true`/`'*'` with `credentials: true` is a finding. Security headers (`@fastify/helmet`, `helmet`, Hono `secureHeaders`) with a CSP where HTML is served; prod error handler returns no stack traces.
+
+**HTML output (A03 XSS):**
+- JSX escaping intact — `dangerouslySetInnerHTML` only on sanitized (DOMPurify) input; URL attributes from data reject `javascript:`; server templates autoescape.
+
+**Database (A03 injection):**
+- Bound parameters: Kysely/Drizzle `sql` tagged template (not `sql.raw`), Knex `?` bindings, Prisma `$queryRaw` tagged template (never `$queryRawUnsafe` with input); identifiers from input through an allowlist.
+
+**Rate limiting / auth (A07):**
+- Login/reset/signup/expensive/LLM-calling endpoints rate-limited (`@fastify/rate-limit`, `express-rate-limit`, or cited proxy config). JWT `algorithms` pinned, expiry set; session regenerated on login.
+
+**Outbound HTTP (A10 SSRF) + process/fs:**
+- User-influenced URLs: scheme+host allowlist, `redirect: 'manual'`, resolved IP checked against private/link-local/metadata ranges, `AbortSignal.timeout(...)`. `child_process` via `execFile`/`spawn` arg arrays (no `shell: true` with input); `fs` paths resolved and confined to their base dir.
+
+**LLM calls (only where the app calls an LLM API):**
+- Untrusted content is delimited data, never system-prompt instructions; model output schema-validated before any sink or side-effecting tool; tool handlers re-check authz for the acting user; per-user rate/cost limits; API keys server-side only.
+
+**Webhooks:**
+- Signatures verified over the **raw** body (Stripe `stripe.webhooks.constructEvent`; Fastify raw-body parser / `express.raw()` on that route — a global JSON parser in front breaks it) with `crypto.timingSafeEqual` for HMAC; idempotency on event id.
+
+**Dependencies:**
+- `pnpm audit --prod` / `npm audit --omit=dev` / `yarn npm audit` (by lockfile) clean for added/bumped packages; lockfile committed.
 
 ## Step 3 — pass-then-verify EACH control
 

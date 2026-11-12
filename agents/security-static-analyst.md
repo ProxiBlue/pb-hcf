@@ -99,9 +99,22 @@ Hunt for:
 - **SSRF** — `httpx`/`requests`/`urllib` with user-influenced URLs, especially `follow_redirects=True`
 - **Crypto / secrets** — `random` for tokens (use `secrets`), `hashlib.md5/sha1` for passwords, JWT decode without pinned `algorithms`, secrets logged or returned in error bodies
 
+**Node / TypeScript sinks** (stack = node, or any server-side `.ts`/`.js` in the audit target):
+- **Unvalidated input** — Fastify/Express/Hono handlers using `request.body` / `req.query` / `c.req.json()` without a schema (Fastify JSON schema/TypeBox, Zod/Valibot); raw body spread into the ORM (`create({ ...req.body })` mass assignment)
+- **SQL** — template-literal / concatenated SQL into `pg`/`mysql2` `query()`; Kysely `sql.raw()` / `sql.lit()` / `sql.ref()` with input; Knex `.raw()` / `whereRaw()` / `orderByRaw()` interpolated instead of `?` bindings; Prisma `$queryRawUnsafe` / `$executeRawUnsafe`; Drizzle `sql.raw()`; order-by/column names from input without an allowlist
+- **OS command / code exec** — `child_process.exec`/`execSync` with a built string, `spawn(…, { shell: true })`, `execa` `shell: true`; `eval`, `new Function`, `vm.run*` (not a sandbox), `require()`/`import()` of input-named modules
+- **Path traversal** — `fs.*` / `createReadStream` / `res.sendFile` / `reply.sendFile` with `path.join(base, input)` and no `path.resolve` + `startsWith(base + path.sep)` check; archive extraction without entry-path checks
+- **Prototype pollution** — deep-merge / `lodash.merge` / `set` / `Object.assign` of parsed JSON into shared objects (`__proto__`, `constructor.prototype` keys)
+- **SSRF** — `fetch` / `undici` / `axios` / `got` with user-influenced URLs (`fetch` follows redirects by default); webhook-URL fields, URL previews, image proxies
+- **XSS** — React `dangerouslySetInnerHTML`, `innerHTML`/`insertAdjacentHTML`/`document.write`, `href`/`src` from data (`javascript:`), Vue `v-html`, Svelte `{@html}`, server templates with raw output (`{{{ }}}`, `<%- %>`)
+- **Open redirect** — `res.redirect(req.query.next)` / `reply.redirect(...)` / `c.redirect(...)` not restricted to relative paths or an allowlist
+- **Secrets in client bundles** — secret values in `VITE_*` / `NEXT_PUBLIC_*` / `PUBLIC_*` env vars or Vite `define`, server-only modules imported from client code, public production source maps
+- **Crypto / auth** — `Math.random()` for tokens, `createHash('md5'|'sha1')` for passwords, `jwt.verify` without pinned `algorithms` or `jwt.decode` used for authz, `===` on secrets instead of `crypto.timingSafeEqual`, secrets in pino/console logs (no `redact`)
+- **LLM prompt injection** (app calls an LLM API — `@anthropic-ai/sdk`, `openai`, `ai`) — untrusted content (user input, fetched pages, uploads, user-written DB rows) concatenated into system prompts/instructions; model output reaching SQL/shell/`fetch`/HTML/`eval` or side-effecting tool handlers without schema validation and an authz check for the acting user
+
 ## Step 4 — trace source → sink
 
-For each (source, sink) pair, walk the data flow. **Use `mcp__pb-codegraph__impact` on every modified public method or class** in the audit target to surface indirect callers — plugins, observers, DI preferences. Grep alone misses these on Magento. (Python stack without codegraph: grep the symbol across the package + `Depends(` chains, read each caller.)
+For each (source, sink) pair, walk the data flow. **Use `mcp__pb-codegraph__impact` on every modified public method or class** in the audit target to surface indirect callers — plugins, observers, DI preferences. Grep alone misses these on Magento. (Python stack without codegraph: grep the symbol across the package + `Depends(` chains, read each caller. Node stack: grep the symbol + route/middleware/plugin registrations — `app.use`, `fastify.register`, `addHook` — read each caller.)
 
 Citation discipline: a finding without a concrete file:line is NOT a finding. Drop it.
 

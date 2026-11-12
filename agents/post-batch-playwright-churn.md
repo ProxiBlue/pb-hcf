@@ -62,7 +62,7 @@ STATUS: PASS — batch <B>: <E2E_RUNS> Playwright run(s) across <TASKS> task(s),
 ```
 STATUS: PUSHBACK — batch <B>: Playwright over-iteration — extract to unit
 - task <NNN>: <n> Playwright runs (budget 8). Top spec: <spec> x<k>. Top --grep: <grep> x<k>.
-Action: move the logic being iterated (Alpine/JS state, view-model branches, price/guard rules) into the stack's fast layer — magento: a `node --test` JS unit or PHPUnit test; python: a pytest test (pure function, or the route via `httpx.ASGITransport` — no browser) or `node --test` for extracted static JS — iterate RED→GREEN there, then ONE scoped Playwright run per green cycle (testing.md → "Playwright run budget").
+Action: move the logic being iterated (Alpine/JS state, view-model branches, price/guard rules) into the stack's fast layer — magento: a `node --test` JS unit or PHPUnit test; python: a pytest test (pure function, or the route via `httpx.ASGITransport` — no browser) or `node --test` for extracted static JS; node: a vitest/jest test (component via Testing Library, handler via `app.inject()` / `app.request()` / supertest — no browser) — iterate RED→GREEN there, then ONE scoped Playwright run per green cycle (testing.md → "Playwright run budget").
 ```
 
 PUSHBACK is advisory for the batch just finished (the runs already happened) — it is aimed at the NEXT batches' workers and at the plan author. It never blocks.

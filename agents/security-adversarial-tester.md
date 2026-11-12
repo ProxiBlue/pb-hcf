@@ -47,7 +47,7 @@ Skip this probe when `.claude/wires.json` has no `codegraph` row (python-stack w
 ## Step 2 — enumerate attack surface
 
 For the audit target, enumerate every place an attacker could reach:
-- Public HTTP routes (controller `execute()` methods, GraphQL resolvers, REST endpoints; FastAPI `@router.<verb>` / `@app.<verb>` handlers and their `Depends(...)` chains)
+- Public HTTP routes (controller `execute()` methods, GraphQL resolvers, REST endpoints; FastAPI `@router.<verb>` / `@app.<verb>` handlers and their `Depends(...)` chains; Node: Fastify/Express/Hono route handlers + the hooks/middleware guarding them, tRPC/GraphQL resolvers, server actions)
 - Webhook receivers (incoming signed/unsigned)
 - Admin/backend routes (assume the attacker is an authenticated low-privilege user attempting privilege escalation)
 - File-upload handlers
@@ -73,13 +73,15 @@ For each surface, write the concrete payload / scenario you'd try:
 | Auth bypass | Token forgery, missing `_isAllowed`, race condition on `lastLoginAt`, response timing for valid-user enumeration |
 | Path traversal | `../../etc/passwd`, URL-encoded variants, double-encoded |
 
+**Node stack** (`"stack": "node"`) — also try: prototype pollution (`{"__proto__":{"isAdmin":true}}` / `constructor.prototype` into merge/set paths), mass assignment (extra `role`/`ownerId` keys in a body spread into the ORM), and — where the app calls an LLM API — indirect prompt injection (instructions planted in a fetched page, upload or user-written DB row that steer a tool call or exfiltrate data via a rendered URL).
+
 Write the **specific payload + the file:line you'd land it at**. Without both, it's not a hypothesis — it's hand-waving.
 
 ## Step 4 — CVE inspection for dependency versions
 
 Enumerate every dependency manifest in the audit target's scope:
 - `composer.json` + `composer.lock`
-- `package.json` + `package-lock.json` / `yarn.lock`
+- `package.json` + `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml`
 - `requirements.txt` / `Pipfile.lock` / `pyproject.toml` + `uv.lock` / `poetry.lock`
 - `go.mod` / `go.sum`
 - `Gemfile.lock`
@@ -107,6 +109,9 @@ ROOT="$(git rev-parse --show-toplevel)"   # /var/www/html inside fleet DDEV cont
 composer audit --format=json 2>/dev/null
 # OR
 cd "$ROOT" && npm audit --json 2>/dev/null
+# OR (Node, pick by lockfile) — pnpm-lock.yaml / yarn.lock (berry; classic: yarn audit --json)
+cd "$ROOT" && pnpm audit --json 2>/dev/null
+cd "$ROOT" && yarn npm audit --json 2>/dev/null
 # OR (Python) — prefer the locked set; fall back to the active env
 cd "$ROOT" && { [ -f uv.lock ] && uv export --frozen --no-hashes --format requirements-txt 2>/dev/null | pip-audit --format=json -r /dev/stdin 2>/dev/null; } \
   || { [ -f requirements.txt ] && pip-audit --format=json -r requirements.txt 2>/dev/null; } \
@@ -116,7 +121,7 @@ cd "$ROOT" && { [ -f uv.lock ] && uv export --frozen --no-hashes --format requir
 
 Cross-check tool output against your manual lookup. Flag mismatches.
 
-**Dependency scope:** only packages the change adds, bumps, or newly calls into are in scope. A known high/critical CVE in an untouched, already-present dependency is `in_scope: false` (ticketed, not voted). Run `composer audit` / `npm audit` / `pip-audit` once, but classify each hit this way.
+**Dependency scope:** only packages the change adds, bumps, or newly calls into are in scope. A known high/critical CVE in an untouched, already-present dependency is `in_scope: false` (ticketed, not voted). Run `composer audit` / `npm audit` (`pnpm audit` / `yarn npm audit`) / `pip-audit` once, but classify each hit this way.
 
 ## Step 5 — graphiti recall for past incidents
 

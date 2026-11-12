@@ -136,6 +136,16 @@ The quorum works the same way; only the catalogues and tools differ:
 - **Dependency audit** — `pip-audit` (against `uv.lock` export or `requirements.txt`) replaces `composer audit`; run from the repo root (`git rev-parse --show-toplevel`), no `/var/www/html` assumption.
 - **SAST opener** — `semgrep --config p/python --config p/fastapi --config p/security-audit --metrics=off --quiet <changed-dirs>`; `ruff` with the `S` (flake8-bandit) rules selected is a cheap complement.
 
+## Node / TypeScript projects (`"stack": "node"` in `.claude/wires.json`)
+
+Same quorum; catalogues and tools differ:
+
+- **Control catalogue** — `security-defensive-auditor` walks "Node / TypeScript controls" (route auth hooks/middleware, schema validation, CSRF on cookie sessions, CORS/helmet, query-builder bindings, SSRF, client-bundle secrets, LLM-call handling, raw-body webhooks).
+- **Sink catalogue** — `security-static-analyst` adds Node sinks (`sql.raw` / `$queryRawUnsafe` / `whereRaw`, `child_process`, `fs` path traversal, `fetch` SSRF, `dangerouslySetInnerHTML`, prototype pollution, `VITE_*` secrets, prompt injection).
+- **No codegraph** — as python: Grep/Read for callers; `codegraph=not-wired` is expected.
+- **Dependency audit** — by lockfile: `pnpm audit --prod` / `npm audit --omit=dev` / `yarn npm audit`; run from the repo root.
+- **SAST opener** — `semgrep --config p/javascript --config p/typescript --config p/security-audit --metrics=off --quiet <changed-dirs>`.
+
 ## Cross-cutting integration
 
 The 3 specialists each consult sibling playbooks during their work:

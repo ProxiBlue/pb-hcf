@@ -32,7 +32,7 @@ Read the staged diff. Identify:
 - **Input sources added** — new request handlers, new API endpoints, new admin form inputs, new CLI flags
 - **Sink behaviour added** — new SQL queries (raw or builder), new shell calls, new file writes, new HTTP outbound, new deserialization
 - **Dependency changes** — `composer.json` / `composer.lock` / `package.json` / `requirements.txt` / `pyproject.toml` / `uv.lock` diff
-- **Auth-touching paths** — magento: anything under `vendor/magento/module-customer`, `vendor/magento/module-backend`, admin ACLs, session handling. python (FastAPI): `auth/`, `security/`, `api/deps.py` / `**/dependencies.py` (the `Depends(...)` providers every router leans on), session/cookie middleware setup, `APIRouter(dependencies=...)` changes, any route whose `Depends(...)` list shrank
+- **Auth-touching paths** — magento: anything under `vendor/magento/module-customer`, `vendor/magento/module-backend`, admin ACLs, session handling. python (FastAPI): `auth/`, `security/`, `api/deps.py` / `**/dependencies.py` (the `Depends(...)` providers every router leans on), session/cookie middleware setup, `APIRouter(dependencies=...)` changes, any route whose `Depends(...)` list shrank. node: auth middleware / hooks (Fastify `onRequest`/`preHandler` + `register()` scope, Express `app.use(...)` order, Hono middleware), session/cookie/JWT setup, any route moved out of a guarded scope or whose middleware list shrank
 - **Crypto / secrets paths** — anything touching `encrypt`, `encryption_key`, password hashing, token generation
 
 ### Step 2 — Three angles, fast
@@ -42,10 +42,10 @@ For each diff hunk in scope, ask:
 1. **What's the worst input an attacker could send to this code path now?**
    - Cite the file:line + the exact payload class (SQLi, XSS, SSRF, path-traversal, deserialization, command injection, CSRF, IDOR, mass-assignment).
 2. **What's an indirect call chain that bypasses an intended check?**
-   - Use `mcp__pb-codegraph__impact` to enumerate callers of any new public method (no codegraph wired — python stack — `Grep` callers and `Depends(` references instead).
+   - Use `mcp__pb-codegraph__impact` to enumerate callers of any new public method (no codegraph wired — python stack — `Grep` callers and `Depends(` references instead; node stack — `Grep` callers + route/middleware registrations).
    - Check whether the new method's expected pre-condition (auth, validation, idempotency check) is enforced by EVERY caller — not just the obvious ones.
 3. **Does any new dependency carry a known CVE in the pinned version?**
-   - Use `composer.lock` / `package.json` / `uv.lock` / `requirements.txt` diff to identify version bumps or new deps.
+   - Use `composer.lock` / `package.json` / `uv.lock` / `requirements.txt` diff to identify version bumps or new deps (node: also `pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`).
    - For each: `WebSearch` for `<package> <version> CVE`. If a hit, `WebFetch` the NVD entry. Cite CVE ID + summary + fixed-version.
 
 ### Step 3 — Cross-check graphiti for the same patterns
@@ -58,7 +58,25 @@ If a prior incident in graphiti matches a finding here, that escalates the sever
 
 ### Step 4 — lint/modernization-diff judgment (deterministic layer's findings, judged here)
 
-**Pick by stack** (`jq -r '.stack // "magento"' .claude/wires.json`): `magento` → Step 4 (magento) below, unchanged. `python` → Step 4 (python), skip the rector step entirely. `drupal` → Step 4 (magento) mechanics (`scripts/rector-check.sh` auto-scopes to `web/modules/custom` + `web/themes/custom` when there is no `app/code`), but judge Drupal wiring instead of Magento wiring: public signatures on classes referenced from `*.services.yml`, `*.routing.yml` (`_controller`/`_form`), plugin annotations/attributes, or `hook_*` implementations; dead-code removal on methods reached only via YAML service/route definitions, event subscribers, or hook discovery; constructor changes on classes built through `create(ContainerInterface)` / autowiring. No codegraph — use Grep over `*.yml` + `*.module` for callers.
+**Pick by stack** (`jq -r '.stack // "magento"' .claude/wires.json`): `magento` → Step 4 (magento) below, unchanged. `python` → Step 4 (python), skip the rector step entirely. `drupal` → Step 4 (magento) mechanics (`scripts/rector-check.sh` auto-scopes to `web/modules/custom` + `web/themes/custom` when there is no `app/code`), but judge Drupal wiring instead of Magento wiring: public signatures on classes referenced from `*.services.yml`, `*.routing.yml` (`_controller`/`_form`), plugin annotations/attributes, or `hook_*` implementations; dead-code removal on methods reached only via YAML service/route definitions, event subscribers, or hook discovery; constructor changes on classes built through `create(ContainerInterface)` / autowiring. No codegraph — use Grep over `*.yml` + `*.module` for callers. `node` → Step 4 (node), skip the rector step entirely.
+
+#### Step 4 (node) — type-check + lint judgment
+
+Deterministic layer, run inline (no plugin script). Package manager from the lockfile — `pnpm-lock.yaml` → `X="pnpm exec"`, `yarn.lock` → `X=yarn`, else `X="npx --no"` (never auto-installs). Each tool runs only when it is in `package.json` (dev)dependencies; absent → note `not installed`, not a concern.
+
+```bash
+CHANGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.tsx' '*.mts' '*.cts' '*.js' '*.jsx' '*.mjs' '*.cjs')
+$X tsc --noEmit                                         # typescript + tsconfig.json present; prefer the project's own "typecheck" script if package.json defines one
+$X biome check --no-errors-on-unmatched $CHANGED        # @biomejs/biome in devDependencies
+$X eslint $CHANGED                                      # eslint in devDependencies (biome wins if both)
+```
+
+`tsc` checks the whole project (it can't type-check a file subset against the project config) — only errors in staged files count; errors elsewhere are pre-existing, mention the count only. Read-only: never `--write` / `--fix`. Judge:
+
+- **Type errors in staged files** — tests passed but vitest/jest/esbuild strip types, so these ship. Cite `file:line` + the error; one that hides a real bug (wrong arg order, possibly-`undefined` reaching a sink, widened `any` on request input) → DEFER concern.
+- **Lint findings that change runtime behaviour if "fixed"** — unused-import removal of side-effect imports (route/plugin registration, `import './instrument'`, polyfills, CSS); `||` → `??` (`0`/`''` semantics); added hook deps (`react-hooks/exhaustive-deps`, biome `useExhaustiveDependencies`) changing when effects fire; `no-floating-promises` fixes changing ordering. Security rules (`no-eval`, `security/*`, biome `noDangerouslySetInnerHtml`) on staged lines → treat as Step 2 input.
+
+Style-only findings: note the count, no citation. Cite `file:line` + finding + risk, or note reviewed-with-no-risk.
 
 #### Step 4 (python) — ruff-diff judgment
 
@@ -126,7 +144,8 @@ Adversarial sweep of staged diff:
   - <K> dependency changes reviewed (no CVE hits)
   - rector-diff: scripts/rector-check.sh clean, or contested transforms reviewed with no
     Magento-wiring risk found   (python: ruff-diff: scripts/ruff-check.sh clean, or contested
-    fixes reviewed with no runtime-behaviour risk found)
+    fixes reviewed with no runtime-behaviour risk found; node: tsc + biome/eslint clean on staged
+    files, or findings reviewed with no runtime-behaviour risk found)
   - Cross-checked graphiti for matching prior incidents — none.
 
 Tool calls: codegraph=<n>, graphiti=<n>, web=<n>
@@ -168,7 +187,7 @@ If you would have used `BLOCK` — DON'T. Tests already passed and the security-
 - A finding with no exploit hypothesis is not a finding. "Could be vulnerable" → drop.
 - A finding without an indirect-caller chain (when one is relevant) is half-baked. Use `mcp__pb-codegraph__impact`.
 - Speed matters. Don't re-run the full security-quorum analysis — that already happened. You're looking for what changed BETWEEN quorum verdict and final commit (style fixes, last-minute edits, dependency tweaks).
-- CVE checks are high-leverage; always do them when `composer.lock` / `package.json` / `uv.lock` / `requirements.txt` changed.
+- CVE checks are high-leverage; always do them when `composer.lock` / `package.json` / `uv.lock` / `requirements.txt` (node: `pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`) changed.
 
 ## Final step — append your hook verdict line (artefact contract)
 

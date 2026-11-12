@@ -1,6 +1,6 @@
 ---
 name: mutation-tester
-description: "pb-hcf post-implementation reviewer — tests-that-test-the-tests. Runner abstraction: Infection on the plan's changed PHP files (app/code/**, excluding generated/vendor/fixtures) when vendor/bin/infection exists, else mutmut on changed Python src files (excluding tests/conftest/scripts); gates on a min-MSI (kill-rate) threshold, and returns PASS or PUSHBACK listing each surviving mutant (file:line + mutator/mutant id) so tdd-workers can strengthen assertions instead of gaming coverage. Writes a `_mutation_tester.md` verdict to the plan dir on every run. Ships DORMANT (no phase/order/mode) — intended enrollment: `post-implementation`, order **45**, mode `single` — AFTER graphiti-reviewer (40) and BEFORE standards-enforcer (50)."
+description: "pb-hcf post-implementation reviewer — tests-that-test-the-tests. Runner abstraction: Infection on the plan's changed PHP files (app/code/**, excluding generated/vendor/fixtures) when vendor/bin/infection exists, else mutmut on changed Python src files (excluding tests/conftest/scripts), else Stryker on changed TS/JS src files when node_modules/.bin/stryker exists; gates on a min-MSI (kill-rate) threshold, and returns PASS or PUSHBACK listing each surviving mutant (file:line + mutator/mutant id) so tdd-workers can strengthen assertions instead of gaming coverage. Writes a `_mutation_tester.md` verdict to the plan dir on every run. Ships DORMANT (no phase/order/mode) — intended enrollment: `post-implementation`, order **45**, mode `single` — AFTER graphiti-reviewer (40) and BEFORE standards-enforcer (50)."
 tools: Read, Glob, Grep, Bash, Write
 ---
 
@@ -20,22 +20,24 @@ You are NOT a coverage checker (coverage tells you a line executed; mutation tes
 if   [ -x vendor/bin/infection ];                         then RUNNER=infection
 elif [ -x .venv/bin/mutmut ];                             then RUNNER=mutmut; MUTMUT=.venv/bin/mutmut
 elif command -v uv >/dev/null && uv run --quiet mutmut --help >/dev/null 2>&1; then RUNNER=mutmut; MUTMUT="uv run mutmut"
+elif [ -x node_modules/.bin/stryker ];                    then RUNNER=stryker
 else RUNNER=none; fi
 ```
 
 - `RUNNER=infection` → follow **Steps 1–5 exactly as written below** (the Infection path — unchanged from pb-hcf ≤0.5.0).
 - `RUNNER=mutmut` → follow **"mutmut path (Python)"** (Steps M1–M4) instead of Steps 1–4, then the shared Step 5 verdict shapes and Step 6 artefact.
-- `RUNNER=none` → Step 2's `STATUS: PASS-with-note` (use the Python install hint from M-none when the project is Python — `pyproject.toml`/`requirements.txt` present, or `.claude/wires.json` `"stack": "python"`), write `_mutation_tester.md`, stop.
+- `RUNNER=stryker` → follow **"Stryker path (Node / TypeScript)"** (Steps S1–S4) instead of Steps 1–4, then the shared Step 5 verdict shapes and Step 6 artefact.
+- `RUNNER=none` → Step 2's `STATUS: PASS-with-note` (use the Python install hint from M-none when the project is Python — `pyproject.toml`/`requirements.txt` present, or `.claude/wires.json` `"stack": "python"`; use the Node hint from S-none when `.claude/wires.json` has `"stack": "node"`, or `package.json` exists with no `composer.json`/`pyproject.toml`/`requirements.txt`), write `_mutation_tester.md`, stop.
 
 **Project overrides from `.claude/testing.md`** (all optional; a line `key: value` anywhere in the file):
 
 | Key | Meaning | Default |
 |---|---|---|
-| `mutation_paths` | comma-separated globs of source files eligible for mutation | infection: `app/code/**/*.php` (drupal stack: `web/modules/custom/**/*.php`, `web/modules/custom/**/*.module`); mutmut: `src/**/*.py` if `src/` exists, else `**/*.py` minus the mutmut excludes |
+| `mutation_paths` | comma-separated globs of source files eligible for mutation | infection: `app/code/**/*.php` (drupal stack: `web/modules/custom/**/*.php`, `web/modules/custom/**/*.module`); mutmut: `src/**/*.py` if `src/` exists, else `**/*.py` minus the mutmut excludes; stryker: `{src,lib}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` minus the S1 excludes |
 | `mutation_min_msi` | floor for MSI / kill rate (%) | `60` |
 | `mutation_min_covered_msi` | floor for covered MSI / covered kill rate (%) | `75` |
 
-For the Infection path the thresholds stay owned by the project's `infection.json5` + the `--min-msi=60 --min-covered-msi=75` flags below; `mutation_min_*` only applies to mutmut (Infection projects keep their existing behaviour). `mutation_paths`, if declared, replaces the `'app/code/**/*.php'` pathspec in Steps 1 and 3 — no Magento project declares it today, so the default is unchanged. On `"stack": "drupal"` (or no `app/code/` but a `web/modules/custom/`), use the drupal default pathspec above in place of `'app/code/**/*.php'` when `mutation_paths` is not declared. A project may raise floors; never silently lower them below the defaults without the declaration being in `testing.md`.
+For the Infection path the thresholds stay owned by the project's `infection.json5` + the `--min-msi=60 --min-covered-msi=75` flags below; `mutation_min_*` only applies to mutmut and Stryker (Infection projects keep their existing behaviour). `mutation_paths`, if declared, replaces the `'app/code/**/*.php'` pathspec in Steps 1 and 3 — no Magento project declares it today, so the default is unchanged. On `"stack": "drupal"` (or no `app/code/` but a `web/modules/custom/`), use the drupal default pathspec above in place of `'app/code/**/*.php'` when `mutation_paths` is not declared. A project may raise floors; never silently lower them below the defaults without the declaration being in `testing.md`.
 
 ### Step 1 — Scope: changed app/code PHP files only
 
@@ -145,6 +147,57 @@ Then add [tool.mutmut] to pyproject.toml (see <plugin>/templates/mutmut/README.m
 No mutation-testing signal was gathered for this plan's changed files.
 ```
 
+### Stryker path (Node / TypeScript) — `RUNNER=stryker`
+
+Run everything via the lockfile's package manager — never a global or auto-downloaded binary: `pnpm-lock.yaml` → `X="pnpm exec"`, `yarn.lock` → `X=yarn`, else `X="npx --no"` (`--no` refuses to install). Workspace monorepo: run from the package dir that owns the Stryker config (`stryker.config.{json,mjs,js,cjs}` / `.stryker.conf.*`), with that package's relative paths.
+
+#### Step S1 — Scope: changed TS/JS source files only
+
+```bash
+git diff --name-only "$BASELINE_REF"..HEAD -- <mutation_paths globs, default '{src,lib}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'>
+```
+
+**Exclude**: `*.test.*` / `*.spec.*`, anything under `__tests__/`, `test/`, `tests/`, `e2e/`, `*.d.ts`, `*.config.*`, generated output (`dist/`, `build/`, `.next/`, `coverage/`), `node_modules/`, migrations. Empty list → `STATUS: PASS` with note `no mutable source files changed` (still write the artefact).
+
+#### Step S2 — Run Stryker on the scoped files only
+
+```bash
+$X stryker run --mutate "src/a.ts,src/b.ts" --reporters json,clear-text   # comma-joined S1 list
+```
+
+The test runner (`@stryker-mutator/vitest-runner` / `jest-runner`), checkers (`@stryker-mutator/typescript-checker`) and ignores come from the project's Stryker config — do not override them. Do not widen `--mutate` beyond the scoped list. Stryker erroring for a non-mutation reason (initial test run fails, runner plugin missing, config error) → `STATUS: PASS-with-note` recording what broke — not PUSHBACK.
+
+#### Step S3 — Collect results
+
+Read the JSON report (`jsonReporter.fileName` from the config, default `reports/mutation/mutation.json`): `files.<path>.mutants[]` each carry `status`, `mutatorName`, `replacement`, `location.start.line`. Tally per status, mirroring Infection's semantics:
+
+```
+detected     = Killed + Timeout
+kill_rate    = detected / (detected + Survived + NoCoverage)    # ≙ MSI (Stryker's mutation score)
+covered_rate = detected / (detected + Survived)                 # ≙ covered MSI
+```
+
+`CompileError`, `RuntimeError`, `Ignored` are excluded from both denominators. Zero denominator → PASS with note `no mutants generated`.
+
+#### Step S4 — Gate
+
+PUSHBACK when `kill_rate < mutation_min_msi` OR `covered_rate < mutation_min_covered_msi` OR any scoped mutant is `Survived` — same rule as the other paths. Otherwise PASS. Report on the Step 5 `MSI:` / `Covered MSI:` lines, name the runner (`Runner: stryker <version>`), and cite each survivor as `file:line — mutator: <mutatorName>` plus the `replacement`. `NoCoverage` mutants are listed too (they mean no test reached the line).
+
+#### S-none — Node project, no Stryker
+
+PASS-with-note text for Node projects:
+
+```
+STATUS: PASS-with-note
+
+Stryker is not installed in this project — mutation testing was skipped.
+To enable: <pnpm add -D | npm i -D | yarn add -D> @stryker-mutator/core @stryker-mutator/vitest-runner
+           (jest projects: @stryker-mutator/jest-runner; optional: @stryker-mutator/typescript-checker)
+Then add stryker.config.json with "testRunner": "vitest" (or "jest") and "reporters": ["json", "clear-text"]
+
+No mutation-testing signal was gathered for this plan's changed files.
+```
+
 ### Step 5 — Build the verdict
 
 #### `STATUS: PASS`
@@ -189,7 +242,7 @@ Each entry MUST cite `file:line` and the Infection mutator name (from `var/infec
 
 - On `STATUS: PASS` — write the PASS verdict block from Step 5.
 - On `STATUS: PUSHBACK` — write the full PUSHBACK verdict block from Step 5, including every surviving mutant.
-- On a degraded-skip (Infection not installed, Step 2; or mutmut not installed, M-none) — write the matching `STATUS: PASS-with-note` block.
+- On a degraded-skip (Infection not installed, Step 2; mutmut not installed, M-none; or Stryker not installed, S-none) — write the matching `STATUS: PASS-with-note` block.
 
 A run that produces no `_mutation_tester.md` is indistinguishable from an agent that never fired — that is the exact silent-skip failure mode this plan exists to close. Use the `Write` tool; overwrite any prior `_mutation_tester.md` from an earlier attempt in the same plan.
 

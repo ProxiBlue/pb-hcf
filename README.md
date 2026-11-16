@@ -43,6 +43,7 @@ Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based h
 | `graphiti-reviewer` | `post-implementation` | 40 | single | Diff-vs-knowledge-graph review — historical counterpart of codegraph-reviewer. Catches: change that conflicts with a prior decision, change that recreates a fixed incident pattern, new dependency that violates a vendor verdict, change overlapping planned-but-not-built work. Returns PASS / PUSHBACK with cited graphiti episode UUIDs. |
 | `mutation-tester` | `post-implementation` | 45 | single | Tests-that-test-the-tests. Runs Infection mutation testing on the plan's changed PHP files only (`app/code/**`, excluding generated/vendor/fixtures), gates on a min-MSI threshold, returns PASS or PUSHBACK listing each surviving mutant (file:line + mutator) so tdd-workers strengthen assertions instead of gaming coverage. Writes a `_mutation_tester.md` verdict every run. Runs once on the whole plan diff, after `graphiti-reviewer` (40), before `standards-enforcer` (50). |
 | `security-quorum` | `post-implementation` | 70 | single | 3-agent 2-of-3 security consensus orchestrator. Spawns the 3 specialists in parallel, runs 2-round consensus, synthesises a single PASS / FAIL / NEEDS-REVIEW verdict, writes one verdict episode to graphiti. ~$0.30–1.00 per run. |
+| `pre-commit-composer-drift` | `pre-commit` | 5 | single | Deterministic composer drift gate, run once AFTER the full test suite passes and BEFORE the commit: `scripts/composer-drift-check.sh` reports packages removed/added/re-versioned in `composer.lock` vs `HEAD`, a `vendor/` that no longer matches the lock, and a stale lock. The agent only decides whether the plan declared the change — PASS, BLOCK (owner decision) or SKIPPED (could not check). Read-only; no-op without `composer.json`. Replaces plan-written "composer integrity audit" tasks. |
 | `pre-commit-adversarial-pass` | `pre-commit` | 10 | single | One last adversarial-tester pass on the staged diff AFTER the full test suite passes, BEFORE the commit lands. Looks for last-minute regressions, exploit patterns, attack chains, dependency CVEs in version bumps, and judges `scripts/rector-check.sh`'s contested transforms (public signature changes, dead-code removal near DI/observer wiring, constructor changes) against Magento-wiring risk. Returns PASS or DEFER (advisory — does NOT block commit; surfaces to the build-summary). Read-only. |
 | `post-commit-verify-handoff` | `post-commit` | 10 | single | Prints the fresh-thread instruction that hands off to `/verify-feature <ticket>` (skill convention requires fresh thread so verify's TodoWrite doesn't fight the build's). Unmissable ASCII box. |
 | `post-commit-build-summary` | `post-commit` | 20 | single | Prints the BUILD COMPLETE summary aggregating every hook verdict + per-task review outcomes + deferred concerns + branch/commit info + `READY TO DEPLOY` (or `NOT READY TO DEPLOY` if any gate blocked). Final user-facing checkpoint before `/deploy-check`. |
@@ -80,6 +81,7 @@ Full custom-workflow integration for HCF v2.0.0+ via the new frontmatter-based h
 | `templates/sentry/README.md` | Per-project install doc for `justbetter/magento2-sentry` — the Sentry-SDK-compatible module that reports runtime errors into central Bugsink so `issue-sentinel` has something to query. |
 | `templates/otel/otel.env.dist` + `services/otel/README.md` | Claude Code OTLP telemetry: client-side env template (`CLAUDE_CODE_ENABLE_TELEMETRY`, `OTEL_METRICS_EXPORTER`, `OTEL_EXPORTER_OTLP_ENDPOINT`, per-project resource attributes) + collector options doc (SigNoz / Langfuse / plain otel-collector, mirror-of-bugsink singleton pattern). Docs + env only in 0.5.0 — no collector implementation ships yet. |
 | `docs/release-tagging.md` | The `HCF_RELEASE=<plan-name>#<batch-n>` convention — how Bugsink events and `magento2-sentry` releases get tagged so `issue-sentinel` can scope queries to "this batch". |
+| `scripts/composer-drift-check.sh` | Deterministic, read-only composer drift gate: `composer.lock` in the working tree vs a ref (default `HEAD`; pass a merge-base or set `COMPOSER_DRIFT_BASE` for the whole branch) — packages removed/added/changed — plus `composer install --dry-run` to prove `vendor/` matches the lock. Exit 0 clean, 1 drift (report), 2 could not check. Run by `pre-commit-composer-drift`; tests in `scripts/composer-drift-check.test.sh`. |
 | `scripts/rector-check.sh` | Deterministic dry-run gate: rector against changed `app/code/**/*.php` files only, non-empty proposed-transform diff = exit 1. Documented for `post-batch` / `pre-commit` use; consumed as structured input by `pre-commit-adversarial-pass`. |
 
 ## Python projects
@@ -204,6 +206,7 @@ Result: bundled agents live in the plugin without a `phase` (dormant in plugin s
 | `mutation-tester` | `post-implementation` | `45` | `single` | THIRD — tests-that-test-the-tests, after the structural/historical reviews but before standards-enforcer reformats anything |
 | (HCF) `standards-enforcer` | `post-implementation` | `50` | `batch` | HCF bundled — code-standards fixes; opt-in (HCF ships with phase commented) |
 | `security-quorum` | `post-implementation` | `70` | `single` | Security audit LAST at post-implementation, on the final diff including standards-enforcer fixes |
+| `pre-commit-composer-drift` | `pre-commit` | `5` | `single` | Deterministic composer drift gate (lock diff + `vendor/` vs lock). Read-only. Returns PASS, BLOCK or SKIPPED. |
 | `pre-commit-adversarial-pass` | `pre-commit` | `10` | `single` | One last adversarial scan after tests pass, before commit. Read-only. Returns PASS or DEFER. |
 | `post-commit-verify-handoff` | `post-commit` | `10` | `single` | Prints verify-feature handoff first (the loud unmissable block) |
 | `post-commit-build-summary` | `post-commit` | `20` | `single` | Then prints the aggregated BUILD COMPLETE summary |
@@ -362,6 +365,9 @@ User runs /hcf:plan-orchestrate <plan>   ◄── VANILLA — no wrapper skill 
   ├─ Full test suite runs ONCE (HCF native invariant — must pass before commit)
   │
   ├─ pre-commit hook (HCF v2):
+  │   ├─ pb-hcf: pre-commit-composer-drift (order 5)
+  │   │   ├─ scripts/composer-drift-check.sh — lock diff vs HEAD + vendor/ vs lock (dry-run)
+  │   │   └─ Returns PASS / BLOCK (undeclared drift — owner decision) / SKIPPED (could not check)
   │   └─ pb-hcf: pre-commit-adversarial-pass (order 10)
   │       ├─ One adversarial sweep of staged diff (git diff --cached)
   │       ├─ Three angles: worst input / indirect-call-chain / CVE-in-bumped-dep

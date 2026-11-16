@@ -206,7 +206,7 @@ If `.claude/CLAUDE.md` contains a legacy fence block from the deprecated per-plu
 
 ### 4. Optional hook enrollment for pb-hcf bundled agents
 
-pb-hcf ships 20 enrollable agents that together implement the **full** custom-workflow that `/proxiblue-skills:workflow-build-feature` used to orchestrate as a wrapper, plus the verification-spine additions from the v0.5.0 release (prospective failure analysis, mutation testing, runtime error triage, pipeline-firing proof), the JS-unit-first Playwright-floor pair (post-0.5.0), `simplify-pass` (mandatory over-engineering/reuse/comment-noise simplify→test loop — the pipeline's structural/security/mutation reviewers never covered this axis; see CHANGELOG), and the #519 wall-time pair `post-plan-dag-check` + `post-batch-playwright-churn`. Each agent enrolls at a specific HCF v2 hook so vanilla `/hcf:plan-create` + `/hcf:plan-orchestrate` execute the entire flow — no wrapping skill required.
+pb-hcf ships 21 enrollable agents that together implement the **full** custom-workflow that `/proxiblue-skills:workflow-build-feature` used to orchestrate as a wrapper, plus the verification-spine additions from the v0.5.0 release (prospective failure analysis, mutation testing, runtime error triage, pipeline-firing proof), the JS-unit-first Playwright-floor pair (post-0.5.0), `simplify-pass` (mandatory over-engineering/reuse/comment-noise simplify→test loop — the pipeline's structural/security/mutation reviewers never covered this axis; see CHANGELOG), and the #519 wall-time pair `post-plan-dag-check` + `post-batch-playwright-churn`. Each agent enrolls at a specific HCF v2 hook so vanilla `/hcf:plan-create` + `/hcf:plan-orchestrate` execute the entire flow — no wrapping skill required.
 
 | Agent | `phase` | `order` | `mode` | What it does |
 |---|---|---|---|---|
@@ -225,6 +225,7 @@ pb-hcf ships 20 enrollable agents that together implement the **full** custom-wo
 | `graphiti-reviewer` | `post-implementation` | `40` | `single` | Diff-vs-knowledge-graph review (prior decisions, incidents, vendor verdicts, planned work overlap). |
 | `mutation-tester` | `post-implementation` | `45` | `single` | Runs Infection (PHP), mutmut (Python) or Stryker (Node/TS) mutation testing on the plan's changed source files only, gates on min-MSI, returns PASS or PUSHBACK listing surviving mutants (file:line + mutator) so tdd-workers strengthen assertions instead of gaming coverage. Runs once, after `graphiti-reviewer` (40), before `standards-enforcer` (50). |
 | `security-quorum` | `post-implementation` | `70` | `single` | 3-agent 2-of-3 security consensus (spawns its own trio: static-analyst, adversarial-tester, defensive-auditor). |
+| `pre-commit-composer-drift` | `pre-commit` | `5` | `single` | Runs `scripts/composer-drift-check.sh` once after the suite passes: packages removed/added/re-versioned in `composer.lock` vs `HEAD`, `vendor/` not matching the lock (`composer install --dry-run`), stale lock. Deterministic and read-only; the agent only decides whether the plan declared the change. PASS / BLOCK (owner decision) / SKIPPED (could not check — never a silent pass). No-op without `composer.json`. Replaces plan-written "composer integrity audit" tasks (pvcpipesupplies #351 stash incident). Runs before `pre-commit-adversarial-pass` (10). |
 | `pre-commit-adversarial-pass` | `pre-commit` | `10` | `single` | One last adversarial-tester pass on the staged diff after tests pass, before commit. Also judges `scripts/rector-check.sh`'s contested transforms (python stack: `scripts/ruff-check.sh`'s `ruff check --diff` fixes; node stack: `tsc --noEmit` + the project's biome/eslint on the staged files). Returns PASS or DEFER (advisory; doesn't block commit). |
 | `post-commit-verify-handoff` | `post-commit` | `10` | `single` | Prints the fresh-thread instruction for `/verify-feature` (skill convention). |
 | `post-commit-build-summary` | `post-commit` | `20` | `single` | Prints the BUILD COMPLETE summary aggregating every hook's verdict + deferred concerns + ready-to-deploy guidance. Replaces workflow-build-feature step 13. |
@@ -235,7 +236,7 @@ pb-hcf ships 20 enrollable agents that together implement the **full** custom-wo
 
 (The 3 security specialists — `security-static-analyst`, `security-adversarial-tester`, `security-defensive-auditor` — are library agents spawned BY `security-quorum` at runtime. They do NOT declare a `phase` themselves and are NOT in the enrollable list.)
 
-**Default: nothing is enrolled.** All 20 agents ship dormant in `$PLUGIN/agents/<name>.md` without `phase` — visible to `Task` but not auto-fired in the pipeline (mirrors how HCF ships `standards-enforcer` with its `phase` commented out).
+**Default: nothing is enrolled.** All 21 agents ship dormant in `$PLUGIN/agents/<name>.md` without `phase` — visible to `Task` but not auto-fired in the pipeline (mirrors how HCF ships `standards-enforcer` with its `phase` commented out).
 
 ### Target-directory resolution (host-side, fleet-aware)
 
@@ -249,11 +250,11 @@ Detection order:
 
 In all three, the path must be **writable from host**. If not, abort with a clear message naming the path and the chown command to fix it.
 
-**Stack guard on enrollment.** When the resolved stack is `python`, `drupal` or `node` and the enable set contains `codegraph-reviewer` (directly or via `--enable-all`), still enroll it if asked but **warn**: `codegraph-reviewer enrolled on a <stack> project — no codegraph playbook is wired, it will report SKIPPED every run`. `--enable-all` keeps its literal meaning (all 20) on every stack; the python / drupal / node recipes below (Recommended enrollment sets) are the recommended sets.
+**Stack guard on enrollment.** When the resolved stack is `python`, `drupal` or `node` and the enable set contains `codegraph-reviewer` (directly or via `--enable-all`), still enroll it if asked but **warn**: `codegraph-reviewer enrolled on a <stack> project — no codegraph playbook is wired, it will report SKIPPED every run`. `--enable-all` keeps its literal meaning (all 21) on every stack; the python / drupal / node recipes below (Recommended enrollment sets) are the recommended sets.
 
 **To enroll**: pass `--enable=<name>[,<name>]` (comma-separated). Example:
 - `/pb-hcf:wire --enable=pre-flight-check,codegraph-reviewer,security-quorum` — minimal sane set
-- `/pb-hcf:wire --enable-all` — enroll **all 20** (full workflow-build-feature replacement + verification spine + Playwright-floor pair + simplify-pass + build timing)
+- `/pb-hcf:wire --enable-all` — enroll **all 21** (full workflow-build-feature replacement + verification spine + Playwright-floor pair + simplify-pass + composer-drift gate + build timing)
 
 For each enrolled name (let `TARGET` = resolved target directory per above):
 
@@ -285,7 +286,7 @@ For each enrolled name (let `TARGET` = resolved target directory per above):
 | Magento project, no auto-test-plan posting | `--enable-all` then `rm $TARGET/post-plan-manual-test-plan.md` |
 | Non-Magento project, graphiti recall only | `--enable=pre-plan-graphiti-recall,graphiti-reviewer,pre-implementation-incident-recall` |
 | Python project (FastAPI etc.), full workflow minus codegraph/Magento-only agents | `--stack=python --enable=pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-dag-check,post-plan-manual-test-plan,pre-implementation-incident-recall,issue-sentinel,simplify-pass,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,post-commit-build-timing,pipeline-audit` (add `post-plan-playwright-bucket-split,pre-batch-playwright-floor-guard,post-batch-playwright-churn` when the project has a Playwright e2e suite) |
-| Drupal project, full workflow minus codegraph/Magento-only agents | `--stack=drupal` + the same 16-agent `--enable=` set as the python row (add the 3 Playwright agents when the project has a Playwright e2e suite — declare `e2e_spec_dir:` in `.claude/testing.md`) |
+| Drupal project, full workflow minus codegraph/Magento-only agents | `--stack=drupal` + the same 16-agent `--enable=` set as the python row (add the 3 Playwright agents when the project has a Playwright e2e suite — declare `e2e_spec_dir:` in `.claude/testing.md`; add `pre-commit-composer-drift` — Drupal is a composer project) |
 | Node / TypeScript project (Fastify, Express, Hono, React/Vite …), full workflow minus codegraph/Magento-only agents | `--stack=node` + the same 16-agent `--enable=` set as the python row (add the 3 Playwright agents when the project has a Playwright e2e suite — declare `e2e_spec_dir:` in `.claude/testing.md`) |
 | Security-focused only | `--enable=pre-flight-check,security-quorum,pre-commit-adversarial-pass` |
 | Minimal (just structural review) | `--enable=codegraph-reviewer` |
@@ -370,7 +371,7 @@ List each created / modified / removed file with a one-line summary. Include rea
   - `--migrate-only` → only run the legacy wire-fence migration step (step 3), don't install or probe anything.
   - `--enable=<name>[,<name>]` → enroll the named pb-hcf bundled agent(s) into HCF's hook pipeline (see step 4 for full semantics and target-directory resolution).
   - `--refresh` → with `--enable=…` / `--enable-all`: re-copy the current plugin body over already-enrolled pb-hcf agents, keeping each enrolled copy's own `phase`/`order`/`mode`. Library agents (the 3 security specialists) are re-copied as-is when `security-quorum` is in the set. Never touches non-pb-hcf files in the target. Use after a pb-hcf agent update (e.g. `/pb-hcf:wire --enable-all --refresh`).
-  - `--enable-all` → shorthand for enrolling all 20 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-playwright-bucket-split,post-plan-dag-check,post-plan-manual-test-plan,pre-implementation-incident-recall,pre-batch-playwright-floor-guard,issue-sentinel,post-batch-playwright-churn,simplify-pass,codegraph-reviewer,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,post-commit-build-timing,pipeline-audit`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
+  - `--enable-all` → shorthand for enrolling all 21 enrollable agents: `pre-flight-check,pre-plan-graphiti-recall,pre-mortem,post-plan-playwright-bucket-split,post-plan-dag-check,post-plan-manual-test-plan,pre-implementation-incident-recall,pre-batch-playwright-floor-guard,issue-sentinel,post-batch-playwright-churn,simplify-pass,codegraph-reviewer,graphiti-reviewer,mutation-tester,security-quorum,pre-commit-composer-drift,pre-commit-adversarial-pass,post-commit-verify-handoff,post-commit-build-summary,post-commit-build-timing,pipeline-audit`. Library agents (the 3 security specialists) come along for the ride when `security-quorum` is enrolled.
   - `--target=<host-path>` → override the auto-detected enrollment target directory. Useful for non-ddev projects or per-project enrollment overrides. Path must exist and be writable from host.
 
 ## Completion Output

@@ -111,6 +111,25 @@ Group_ids: ["<project-id>", "fleet"]
 Conclusion: this topic is greenfield in the knowledge graph.
 ```
 
+### Findings a pipeline check already covers — do not let them become plan tasks
+
+A past incident is a constraint on the tasks that touch that area. It is not a task of its own. plan-create has turned recall findings into standalone read-only "audit" / "verify" / "gate" tasks before, and a task with no code to write does not belong with a `tdd-worker` (pvcpipesupplies #351, 2026-08-05: a "composer integrity audit" task's worker improvised a `git stash` and wiped three finished tasks).
+
+**Composer drift** — a finding about a package pruned or removed, version drift, a pin that moved, or `vendor/` not matching the lock. Check whether the deterministic gate is enrolled:
+
+```bash
+ls .claude/agents/pre-commit-composer-drift.md 2>/dev/null
+```
+
+- Enrolled → write the implication as: `covered by pre-commit-composer-drift (runs at pre-commit) — do NOT add a composer audit / "composer why" task`.
+- Not enrolled → write: `not covered — enroll pre-commit-composer-drift (/pb-hcf:wire --enable=pre-commit-composer-drift) instead of adding a plan task`.
+
+Whenever the block lists at least one past incident, end it with this line, verbatim:
+
+```
+Planner note: do not create read-only audit / verify / gate tasks from these findings. Fold each implication into the task that touches that area. A check no pipeline agent already runs goes under Risks in _plan.md for the owner to place — not into a tdd-worker task.
+```
+
 ### Verdicts other than PASS
 
 - `STATUS: SKIPPED — graphiti unreachable` (Step 1 fail).

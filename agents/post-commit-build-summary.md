@@ -51,6 +51,7 @@ The orchestrator's run output includes the verdicts of every hook agent that fir
 | `codegraph-reviewer` | Look for `STATUS: PASS|PUSHBACK` lines in orchestrator scrollback — or read `.claude/plans/<plan-name>/_codegraph_review.md` if one was written |
 | `graphiti-reviewer` | Same shape — `_graphiti_review.md` if written |
 | `security-quorum` | One verdict episode in graphiti — search `mcp__graphiti__search_memory_facts(query="security-quorum verdict <plan-name>")` or look for `_security_quorum.md` |
+| `pre-commit-composer-drift` | `pre-commit-composer-drift` line in `_hook_verdicts.md` (PASS / BLOCK / SKIPPED); a SKIPPED means the composer check did not run — surface it |
 | `pre-commit-adversarial-pass` | `STATUS: PASS|DEFER` in orchestrator scrollback; deferred concerns must be surfaced here |
 
 For each, capture: STATUS + 1-line summary. If you can't find a verdict for an agent that should have run, note it as "(unrecorded — check orchestrator output)".
